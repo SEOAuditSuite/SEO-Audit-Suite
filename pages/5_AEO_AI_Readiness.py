@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site, aeo_score
 st.title("🤖 AEO / AI Search Readiness")
 st.caption("Heuristic readiness signals only — not a Google, ChatGPT, or AI-search ranking score.")

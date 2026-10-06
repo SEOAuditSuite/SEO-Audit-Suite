@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site, get_robots_sitemap, overall_scores, html_report, parse_sitemap, check_urls, aeo_score
 
 st.title("🧾 Complete SEO Audit Pro V5")

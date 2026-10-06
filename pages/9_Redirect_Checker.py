@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import fetch, normalize_url
 st.title("↪️ Redirect Chain & URL Status")
 st.caption("Checks status, final destination and redirect hops for one or more URLs.")

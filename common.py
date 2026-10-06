@@ -219,6 +219,9 @@ def crawl_page_browser(page, url, timeout=30000):
         }))""")
         audit.images = rendered
     except Exception: pass
+
+    audit.aeo_question_answers = extract_aeo_question_answers_browser(page)
+
     return audit
 
 
@@ -532,3 +535,293 @@ table{{border-collapse:collapse;width:100%;margin-top:12px;background:#fff}} th,
 </div>
 </body>
 </html>'''
+
+def extract_aeo_question_answers_browser(page):
+    """
+    V6 AEO Question Discovery 2.0
+
+    Detects meaningful question-focused content in the rendered DOM,
+    including headings and suitable paragraph-style questions.
+
+    It then inspects nearby rendered content for a direct-answer signal.
+
+    Existing V5 PageAudit functionality is not modified.
+    """
+
+    try:
+        results = page.locator(
+            "h1, h2, h3, h4, h5, h6, p"
+        ).evaluate_all(
+            """
+            elements => {
+
+                const questionStarters = [
+                    "what ",
+                    "why ",
+                    "how ",
+                    "when ",
+                    "where ",
+                    "who ",
+                    "which ",
+                    "can ",
+                    "could ",
+                    "should ",
+                    "is ",
+                    "are ",
+                    "do ",
+                    "does ",
+                    "will ",
+                    "looking for "
+                ];
+
+                const noisePhrases = [
+                    "select your location",
+                    "please select",
+                    "use current location",
+                    "change location",
+                    "select city",
+                    "order type",
+                    "sign in",
+                    "log in",
+                    "subscribe",
+                    "add to cart",
+                    "view cart",
+                    "checkout"
+                ];
+
+                const clean = (value) => {
+                    return (value || "")
+                        .replace(/\\s+/g, " ")
+                        .trim();
+                };
+
+                const wordCount = (value) => {
+                    const text = clean(value);
+
+                    if (!text) {
+                        return 0;
+                    }
+
+                    return text.split(/\\s+/).length;
+                };
+
+                const isNoise = (text) => {
+                    const lower = clean(text).toLowerCase();
+
+                    return noisePhrases.some(
+                        phrase => lower.includes(phrase)
+                    );
+                };
+
+                const looksLikeQuestion = (text, tag) => {
+                    const value = clean(text);
+                    const lower = value.toLowerCase();
+                    const words = wordCount(value);
+
+                    if (!value) {
+                        return false;
+                    }
+
+                    if (isNoise(value)) {
+                        return false;
+                    }
+
+                    /*
+                    Avoid treating very long paragraphs as questions.
+                    */
+                    if (words > 25) {
+                        return false;
+                    }
+
+                    /*
+                    Explicit question mark is the strongest signal.
+                    */
+                    if (value.endsWith("?")) {
+                        return true;
+                    }
+
+                    /*
+                    Question-style headings may omit a question mark.
+                    */
+                    const isHeading = [
+                        "h1",
+                        "h2",
+                        "h3",
+                        "h4",
+                        "h5",
+                        "h6"
+                    ].includes(tag);
+
+                    if (isHeading) {
+                        return questionStarters.some(
+                            starter => lower.startsWith(starter)
+                        );
+                    }
+
+                    return false;
+                };
+
+                const isHeading = (node) => {
+                    if (!node || !node.tagName) {
+                        return false;
+                    }
+
+                    return [
+                        "H1",
+                        "H2",
+                        "H3",
+                        "H4",
+                        "H5",
+                        "H6"
+                    ].includes(node.tagName);
+                };
+
+                const findNearbyAnswer = (element) => {
+                    let node = element.nextElementSibling;
+                    let checked = 0;
+
+                    while (node && checked < 8) {
+                        checked++;
+
+                        const tag = (
+                            node.tagName || ""
+                        ).toLowerCase();
+
+                        const text = clean(node.innerText);
+
+                        /*
+                        Stop when another heading begins.
+                        This keeps the answer tied to the
+                        current content section.
+                        */
+                        if (isHeading(node)) {
+                            break;
+                        }
+
+                        if (!text || isNoise(text)) {
+                            node = node.nextElementSibling;
+                            continue;
+                        }
+
+                        const words = wordCount(text);
+
+                        /*
+                        Paragraph answer.
+                        */
+                        if (
+                            tag === "p" &&
+                            words >= 5 &&
+                            words <= 120
+                        ) {
+                            return {
+                                answer_found: true,
+                                answer: text,
+                                answer_type: "paragraph",
+                                answer_words: words
+                            };
+                        }
+
+                        /*
+                        List answer.
+                        */
+                        if (
+                            (tag === "ul" || tag === "ol") &&
+                            words >= 3 &&
+                            words <= 150
+                        ) {
+                            return {
+                                answer_found: true,
+                                answer: text,
+                                answer_type: "list",
+                                answer_words: words
+                            };
+                        }
+
+                        /*
+                        Some modern JS websites wrap actual
+                        textual answers inside DIV elements.
+                        Keep this deliberately restrictive.
+                        */
+                        if (
+                            tag === "div" &&
+                            words >= 8 &&
+                            words <= 80
+                        ) {
+                            return {
+                                answer_found: true,
+                                answer: text,
+                                answer_type: "content block",
+                                answer_words: words
+                            };
+                        }
+
+                        node = node.nextElementSibling;
+                    }
+
+                    return {
+                        answer_found: false,
+                        answer: "",
+                        answer_type: "",
+                        answer_words: 0
+                    };
+                };
+
+                const output = [];
+                const seen = new Set();
+
+                for (const element of elements) {
+
+                    const tag = (
+                        element.tagName || ""
+                    ).toLowerCase();
+
+                    const question = clean(
+                        element.innerText
+                    );
+
+                    if (
+                        !looksLikeQuestion(
+                            question,
+                            tag
+                        )
+                    ) {
+                        continue;
+                    }
+
+                    const key = question.toLowerCase();
+
+                    /*
+                    Avoid duplicate rendered questions.
+                    */
+                    if (seen.has(key)) {
+                        continue;
+                    }
+
+                    seen.add(key);
+
+                    const answerData =
+                        findNearbyAnswer(element);
+
+                    output.push({
+                        question: question,
+                        source_element: tag,
+                        answer_found:
+                            answerData.answer_found,
+                        answer:
+                            answerData.answer,
+                        answer_type:
+                            answerData.answer_type,
+                        answer_words:
+                            answerData.answer_words
+                    });
+                }
+
+                return output;
+            }
+            """
+        )
+
+        return results
+
+    except Exception:
+        return []

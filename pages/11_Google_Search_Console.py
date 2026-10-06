@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 import pandas as pd
 
 st.title("📈 Google Search Performance")

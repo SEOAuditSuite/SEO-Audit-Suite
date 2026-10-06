@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site, check_urls
 st.title("🔗 Broken Link & Status Auditor Pro")
 st.caption("Rendered links are checked and 4xx responses are classified conservatively because external platforms may reject automated requests.")

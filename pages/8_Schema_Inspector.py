@@ -1,5 +1,7 @@
 import json
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site
 st.title("🧩 Schema Markup Inspector Pro")
 st.caption("Inspects rendered JSON-LD blocks and reports detected Schema.org types. Full Schema.org validation is outside this lightweight inspector.")

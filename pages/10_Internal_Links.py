@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from collections import Counter, defaultdict
 from common import crawl_site, canonical_url
 st.title("🔗 Internal Link & Anchor Text Auditor Pro")

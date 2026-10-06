@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site
 st.title("🖼️ Image SEO Pro")
 st.caption("Audits rendered image elements, ALT coverage, loading hints and intrinsic dimensions where available.")

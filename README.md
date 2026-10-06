@@ -563,3 +563,14 @@ If you are looking for professional SEO auditing, technical SEO analysis, websit
 ## License
 
 This project is currently presented as a portfolio and development project.
+
+## V6 Phase 5 - Client Reporting
+
+The suite now includes a **Client Report & PDF** module that reuses the same browser-rendered V6 AI Search Audit and 30/60-day strategy evidence. It generates a professional client-facing PDF and portable HTML report containing an executive summary, scorecards, prioritized findings, recommended service actions, roadmap and methodology disclaimers.
+
+PDF export requires `reportlab`, included in `requirements.txt`.
+
+
+## V6 Final GUI & reporting polish
+
+The suite now uses a shared dark professional visual system across the dashboard and audit pages. The final dashboard groups the workflow into Traditional SEO, AI Search Intelligence, Authority & Trust, Competitive Intelligence, Strategy, and Client Deliverables. Client reports explicitly distinguish **AEO Intelligence 2.0** from the **Legacy AEO Checklist**, and 30/60-day roadmap items are labeled as **Strategy Priority** so they are not confused with audit-finding priority counts.

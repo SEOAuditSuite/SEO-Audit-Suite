@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import crawl_site
 st.title("🏷️ Meta, Canonical & Social Metadata")
 st.caption("Rendered metadata audit with practical checks for titles, descriptions, canonicals and social tags.")

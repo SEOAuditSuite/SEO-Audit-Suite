@@ -1,6 +1,8 @@
 import os
 import requests
 import streamlit as st
+
+from ui import apply_global_ui
 st.title("⚡ PageSpeed & Core Web Vitals")
 st.caption("Google PageSpeed Insights integration. API access is optional and requires a Google PageSpeed API key.")
 url=st.text_input("Website URL",placeholder="https://example.com")

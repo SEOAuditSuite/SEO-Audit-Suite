@@ -1,4 +1,6 @@
 import streamlit as st
+
+from ui import apply_global_ui
 from common import get_robots_sitemap, parse_sitemap, check_urls, normalize_url
 st.title("🗺️ Sitemap & Robots Health")
 st.caption("Checks availability, sitemap URL inventory, HTTP status, and basic robots/sitemap consistency.")
