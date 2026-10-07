@@ -5,3 +5,6 @@ venv/
 .env
 .streamlit/secrets.toml
 .DS_Store
+
+client-data/
+client-deliveries/

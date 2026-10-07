@@ -1,0 +1,679 @@
+{
+  "version": "6.1.0",
+  "collected_at": "2026-10-07 10:46 UTC",
+  "client": "DEMONSTRATION ONLY - synthetic pages",
+  "goal": "Demonstrate the audit delivery format",
+  "location": "No real market",
+  "scope": "This is a sampled audit, not a complete index of the website. AEO, entity, GEO and crawler scores use the first successfully fetched page; technical, authority and reputation summaries use the crawl sample. Scores are internal heuristics, not rankings or measured AI visibility. Content length is not semantic relevance. Parsed JSON-LD is not schema eligibility validation. Search volume, rankings, backlinks, GBP performance, conversions and AI citations are not measured unless supplied and verified separately. Generic meta robots and URL-specific robots.txt rules are inspected; HTTP X-Robots-Tag, bot-specific meta, WAF, login and actual index status require separate checks. Crawl response timing is not Core Web Vitals; use PageSpeed separately. The crawler follows in-site links to the chosen limit and does not establish orphan-page or full sitemap coverage.",
+  "page_limit": 2,
+  "audit": {
+    "url": "https://demo.example",
+    "domain": "demo.example",
+    "error": "",
+    "score": 49,
+    "readiness": "Developing",
+    "components": {
+      "AEO readiness": [
+        57,
+        25
+      ],
+      "Entity clarity": [
+        55,
+        15
+      ],
+      "AI crawler accessibility": [
+        85,
+        15
+      ],
+      "Structured data coverage": [
+        70,
+        10
+      ],
+      "Content length proxy": [
+        10,
+        10
+      ],
+      "Internal architecture": [
+        10,
+        10
+      ],
+      "Authority foundations": [
+        40,
+        10
+      ],
+      "Reputation foundations": [
+        20,
+        5
+      ]
+    },
+    "findings": [
+      {
+        "priority": "HIGH",
+        "signal": "Content length proxy",
+        "score": 10,
+        "weight": 10,
+        "finding": "Content length proxy is currently 10/100 in the AI Search Audit model.",
+        "service_area": "Content Strategy"
+      },
+      {
+        "priority": "HIGH",
+        "signal": "Internal architecture",
+        "score": 10,
+        "weight": 10,
+        "finding": "Internal architecture is currently 10/100 in the AI Search Audit model.",
+        "service_area": "Internal Linking / Information Architecture"
+      },
+      {
+        "priority": "HIGH",
+        "signal": "Reputation foundations",
+        "score": 20,
+        "weight": 5,
+        "finding": "Reputation foundations is currently 20/100 in the AI Search Audit model.",
+        "service_area": "Reputation / Social Proof"
+      },
+      {
+        "priority": "MEDIUM",
+        "signal": "Authority foundations",
+        "score": 40,
+        "weight": 10,
+        "finding": "Authority foundations is currently 40/100 in the AI Search Audit model.",
+        "service_area": "Authority / Trust Foundations"
+      },
+      {
+        "priority": "MEDIUM",
+        "signal": "Entity clarity",
+        "score": 55,
+        "weight": 15,
+        "finding": "Entity clarity is currently 55/100 in the AI Search Audit model.",
+        "service_area": "Entity SEO / Structured Identity"
+      },
+      {
+        "priority": "MEDIUM",
+        "signal": "AEO readiness",
+        "score": 57,
+        "weight": 25,
+        "finding": "AEO readiness is currently 57/100 in the AI Search Audit model.",
+        "service_area": "AEO / Answer Optimization"
+      },
+      {
+        "priority": "OPPORTUNITY",
+        "signal": "Structured data coverage",
+        "score": 70,
+        "weight": 10,
+        "finding": "Structured data coverage is currently 70/100 in the AI Search Audit model.",
+        "service_area": "Structured Data"
+      }
+    ],
+    "pages_crawled": 2,
+    "crawl_errors": 0,
+    "browser_used": false,
+    "evidence": {
+      "average_words": 44,
+      "schema_pages": 1,
+      "schema_coverage_percent": 50,
+      "unique_internal_destinations": 2,
+      "schema_types": [
+        "Organization"
+      ],
+      "about_signal": false,
+      "contact_signal": true,
+      "social_profiles": []
+    },
+    "raw": {
+      "seo": {
+        "Technical SEO": 75,
+        "On-Page SEO": 70,
+        "Schema": 50,
+        "Image SEO": 100,
+        "Social Metadata": 0,
+        "Performance": 100,
+        "AEO Readiness": 50,
+        "Overall SEO Health": 65
+      },
+      "aeo": {
+        "score": 57,
+        "readiness": "Developing",
+        "breakdown": {
+          "question_targeting": {
+            "score": 16,
+            "max_score": 20
+          },
+          "direct_answer_coverage": {
+            "score": 25,
+            "max_score": 25
+          },
+          "answer_quality": {
+            "score": 12,
+            "max_score": 20
+          },
+          "faq_readiness": {
+            "score": 0,
+            "max_score": 15
+          },
+          "answer_friendly_structure": {
+            "score": 0,
+            "max_score": 10
+          },
+          "structured_data": {
+            "score": 4,
+            "max_score": 10
+          }
+        },
+        "evidence": {
+          "questions_found": 3,
+          "answers_found": 3,
+          "answer_coverage_percent": 100,
+          "average_answer_quality": 58,
+          "faq_signal": false,
+          "faq_schema": false,
+          "lists_found": 0,
+          "tables_found": 0,
+          "useful_schema_types": [
+            "organization"
+          ]
+        },
+        "answer_quality_detail": [
+          {
+            "question": "What does a service visit include?",
+            "answer_found": true,
+            "answer": "Demo home services What does a service visit include?",
+            "answer_type": "",
+            "word_count": 9,
+            "quality": "Weak",
+            "completeness_score": 44,
+            "finding": "A nearby answer exists, but it is not strong enough as a concise direct answer.",
+            "recommendation": "Rewrite the response as a clear, concise and self-contained answer.",
+            "priority": "HIGH"
+          },
+          {
+            "question": "How do I request an appointment?",
+            "answer_found": true,
+            "answer": "Use the contact page to request an appointment.",
+            "answer_type": "",
+            "word_count": 8,
+            "quality": "Weak",
+            "completeness_score": 44,
+            "finding": "A nearby answer exists, but it is not strong enough as a concise direct answer.",
+            "recommendation": "Rewrite the response as a clear, concise and self-contained answer.",
+            "priority": "HIGH"
+          },
+          {
+            "question": "Demo home services What does a service visit include?",
+            "answer_found": true,
+            "answer": "A service visit includes an initial assessment, a written explanation of the work and a discussion of the available options.",
+            "answer_type": "",
+            "word_count": 20,
+            "quality": "Strong",
+            "completeness_score": 85,
+            "finding": "A clear and well-structured direct answer was detected.",
+            "recommendation": "Maintain the concise answer structure and strengthen it where useful with supporting detail or structured data.",
+            "priority": "OPPORTUNITY"
+          }
+        ],
+        "faq_present": false
+      },
+      "geo": {
+        "score": 53,
+        "readiness": "Developing",
+        "components": {
+          "AEO readiness": [
+            57,
+            30
+          ],
+          "Entity clarity": [
+            55,
+            20
+          ],
+          "AI crawler accessibility": [
+            85,
+            20
+          ],
+          "Content length proxy": [
+            30,
+            15
+          ],
+          "Structured data": [
+            25,
+            10
+          ],
+          "Internal linking": [
+            25,
+            5
+          ]
+        },
+        "opportunities": [
+          [
+            "MEDIUM",
+            "Content length proxy is a weak GEO signal (30/100).",
+            "Content length proxy"
+          ],
+          [
+            "MEDIUM",
+            "Structured data is a weak GEO signal (25/100).",
+            "Structured data"
+          ],
+          [
+            "MEDIUM",
+            "Internal linking is a weak GEO signal (25/100).",
+            "Internal linking"
+          ]
+        ],
+        "limitations": "Content length, schema count and link count are heuristic proxies. They do not measure semantic relevance, schema eligibility, rankings or AI citations. Manual intent and quality review is required."
+      },
+      "entity": {
+        "score": 55,
+        "readiness": "Developing",
+        "types": [
+          "organization"
+        ],
+        "names": [
+          "Demo Home Services"
+        ],
+        "schema_names": [
+          "Demo Home Services"
+        ],
+        "rendered_brand": "Demo Home Services",
+        "same_as": [],
+        "ids": [],
+        "contact": true,
+        "address": false,
+        "about_signal": false,
+        "product_service_signal": true,
+        "findings": [
+          [
+            "MEDIUM",
+            "No sameAs identity references were detected.",
+            "Entity Consistency"
+          ],
+          [
+            "OPPORTUNITY",
+            "No clear About-page signal was found in rendered internal links.",
+            "Brand Identity"
+          ]
+        ]
+      },
+      "crawler": {
+        "score": 85,
+        "readiness": "Strong",
+        "robots_status": 200,
+        "sitemap_status": 200,
+        "indexable": true,
+        "canonical_ok": true,
+        "rendered": false,
+        "content_ok": false,
+        "bots": [
+          {
+            "crawler": "googlebot",
+            "purpose": "Search crawler",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          },
+          {
+            "crawler": "oai-searchbot",
+            "purpose": "Search crawler",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          },
+          {
+            "crawler": "perplexitybot",
+            "purpose": "Search crawler",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          },
+          {
+            "crawler": "gptbot",
+            "purpose": "Training control",
+            "explicit_rule": true,
+            "blocked_url": true,
+            "group": "specific",
+            "matched_rule": "disallow: /",
+            "status": "Blocked for this URL"
+          },
+          {
+            "crawler": "google-extended",
+            "purpose": "Training / grounding control",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          },
+          {
+            "crawler": "claudebot",
+            "purpose": "Training control",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          },
+          {
+            "crawler": "chatgpt-user",
+            "purpose": "User-triggered fetcher",
+            "explicit_rule": false,
+            "blocked_url": false,
+            "group": "wildcard",
+            "matched_rule": "allow: /",
+            "status": "No matching restriction for this URL"
+          }
+        ],
+        "findings": [],
+        "errors": [],
+        "coverage_percent": 100,
+        "evaluated_url": "https://demo.example/",
+        "limitations": "URL-specific robots rule simulation, not observed bot access. Vendor behavior varies. Generic meta robots only; HTTP X-Robots-Tag, bot-specific meta directives, WAF and login restrictions need separate verification. Training controls do not lower the search score. Rendering mode is informational."
+      },
+      "authority": {
+        "score": 40,
+        "readiness": "Developing",
+        "components": {
+          "HTTPS foundation": [
+            10,
+            10
+          ],
+          "About identity": [
+            0,
+            15
+          ],
+          "Contact transparency": [
+            10,
+            10
+          ],
+          "Identity schema": [
+            15,
+            15
+          ],
+          "Author/editorial signals": [
+            0,
+            15
+          ],
+          "External citations": [
+            0,
+            10
+          ],
+          "Content depth": [
+            0,
+            10
+          ],
+          "Trust/policy pages": [
+            0,
+            5
+          ],
+          "Internal architecture": [
+            0,
+            5
+          ],
+          "Structured data coverage": [
+            5,
+            5
+          ]
+        },
+        "evidence": {
+          "pages_crawled": 2,
+          "average_words": 44,
+          "schema_coverage_percent": 50,
+          "identity_schema": true,
+          "author_signal": false,
+          "about_signal": false,
+          "contact_signal": true,
+          "policy_signal": false,
+          "citation_domains": [],
+          "citation_count": 0,
+          "internal_destinations": 2,
+          "schema_types": [
+            "organization"
+          ]
+        },
+        "findings": [
+          [
+            "HIGH",
+            "No clear About-page signal was detected across the crawled site.",
+            "Brand / Entity Authority"
+          ],
+          [
+            "MEDIUM",
+            "No strong author/editorial ownership signal was detected.",
+            "Editorial Authority"
+          ],
+          [
+            "MEDIUM",
+            "No clear non-social external citation pattern was detected.",
+            "Source & Citation Quality"
+          ],
+          [
+            "OPPORTUNITY",
+            "Trust/policy navigation signals were limited or not detected.",
+            "Trust Foundations"
+          ]
+        ],
+        "disclaimer": "Authority Score is an application-defined audit of observable on-site authority foundations. It is not Google PageRank, Moz DA, Ahrefs DR, Semrush Authority Score, or a backlink-quality metric."
+      },
+      "reputation": {
+        "score": 20,
+        "readiness": "Weak",
+        "components": {
+          "Review/rating schema": [
+            0,
+            20
+          ],
+          "Review/testimonial content": [
+            0,
+            15
+          ],
+          "Social profile footprint": [
+            0,
+            20
+          ],
+          "Contact transparency": [
+            15,
+            15
+          ],
+          "Address/location clarity": [
+            0,
+            10
+          ],
+          "About/identity signal": [
+            0,
+            10
+          ],
+          "Policy/trust pages": [
+            0,
+            5
+          ],
+          "Brand consistency": [
+            5,
+            5
+          ]
+        },
+        "evidence": {
+          "brand": "Demo Home Services",
+          "review_schema": false,
+          "review_text_signal": false,
+          "social_profiles": [],
+          "contact_signal": true,
+          "address_signal": false,
+          "about_signal": false,
+          "policy_signal": false,
+          "brand_consistency": true,
+          "schema_types": [
+            "organization"
+          ]
+        },
+        "findings": [
+          [
+            "MEDIUM",
+            "No Review or AggregateRating schema signal was detected in the crawled pages.",
+            "Reputation Structured Data"
+          ],
+          [
+            "MEDIUM",
+            "No clear review/testimonial content signal was detected in the crawl.",
+            "Social Proof"
+          ],
+          [
+            "MEDIUM",
+            "A broad multi-platform social profile footprint was not detected from rendered external links.",
+            "Social Reputation"
+          ],
+          [
+            "OPPORTUNITY",
+            "No clear About-page signal was detected in rendered navigation.",
+            "Brand Trust"
+          ]
+        ],
+        "disclaimer": "Reputation Score is based on observable website signals only. It does not automatically measure Google reviews, marketplace ratings, sentiment across the web, or brand mentions unless external evidence is supplied."
+      }
+    },
+    "disclaimer": "AI Search Audit Score is an application-defined synthesis of observable website signals. It is not an official score from Google, OpenAI, Bing, Perplexity or another AI/search platform, and it does not predict rankings, citations or traffic."
+  },
+  "pages": [
+    {
+      "url": "https://demo.example/",
+      "final_url": "https://demo.example/",
+      "status": 200,
+      "title": "Demo Home Services",
+      "description": "A synthetic website used only for testing.",
+      "canonical": "",
+      "robots_meta": "",
+      "h1": [
+        "Demo home services"
+      ],
+      "h2": [
+        "What does a service visit include?",
+        "How do I request an appointment?"
+      ],
+      "h3": [],
+      "word_count": 57,
+      "body_text": "Demo home services What does a service visit include? A service visit includes an initial assessment, a written explanation of the work and a discussion of the available options. This is demonstration text for an audit sample, not a real business offering. How do I request an appointment? Use the contact page to request an appointment. This synthetic page demonstrates a direct answer without claiming real availability, credentials or results. View services Home Contact",
+      "images": [],
+      "internal_links": [
+        {
+          "url": "https://demo.example/services.html",
+          "anchor": "View services"
+        },
+        {
+          "url": "https://demo.example/",
+          "anchor": "Home"
+        },
+        {
+          "url": "https://demo.example/services.html",
+          "anchor": "Contact"
+        }
+      ],
+      "external_links": [],
+      "schema_types": [
+        "Organization"
+      ],
+      "schema_blocks": [
+        {
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": "Demo Home Services",
+          "url": "https://demo.example"
+        }
+      ],
+      "og": {},
+      "twitter": {},
+      "lists": 0,
+      "tables": 0,
+      "forms": 0,
+      "lang": "en",
+      "noindex": false,
+      "response_ms": 25,
+      "browser_rendered": false,
+      "error": ""
+    },
+    {
+      "url": "https://demo.example/services.html",
+      "final_url": "https://demo.example/services.html",
+      "status": 200,
+      "title": "Demo Service Details",
+      "description": "",
+      "canonical": "",
+      "robots_meta": "",
+      "h1": [
+        "Demo service details"
+      ],
+      "h2": [
+        "What should I prepare?"
+      ],
+      "h3": [],
+      "word_count": 32,
+      "body_text": "Demo service details This is synthetic service content used to show missing metadata and malformed structured data in a demonstration report. What should I prepare? Prepare a description of the issue and relevant photographs for the initial discussion. Home",
+      "images": [],
+      "internal_links": [
+        {
+          "url": "https://demo.example/",
+          "anchor": "Home"
+        }
+      ],
+      "external_links": [],
+      "schema_types": [],
+      "schema_blocks": [
+        {
+          "_parse_error": true,
+          "raw": "{\"@type\":\"Service\", BROKEN}"
+        }
+      ],
+      "og": {},
+      "twitter": {},
+      "lists": 0,
+      "tables": 0,
+      "forms": 0,
+      "lang": "",
+      "noindex": false,
+      "response_ms": 25,
+      "browser_rendered": false,
+      "error": ""
+    }
+  ],
+  "issues": [
+    {
+      "ID": "SEO-001",
+      "URL": "https://demo.example/services.html",
+      "Priority": "Medium",
+      "Finding": "Missing meta description",
+      "Evidence": "No description value extracted",
+      "Confidence": "Observed",
+      "Action": "Add an accurate page summary where appropriate.",
+      "Owner": "SEO / Content",
+      "Acceptance": "Description is present and reviewed for accuracy.",
+      "Status": "Open"
+    },
+    {
+      "ID": "SEO-002",
+      "URL": "https://demo.example/services.html",
+      "Priority": "High",
+      "Finding": "Malformed JSON-LD",
+      "Evidence": "Unparseable blocks: 1",
+      "Confidence": "Observed",
+      "Action": "Repair JSON syntax, then validate relevant schema properties separately.",
+      "Owner": "Developer",
+      "Acceptance": "JSON parses; relevant schema passes the selected validator.",
+      "Status": "Open"
+    }
+  ],
+  "keywords": [],
+  "crawl_errors": [],
+  "browser_error": "",
+  "discovery": {
+    "robots": {
+      "status": 200,
+      "text": "User-agent: *\nAllow: /\nUser-agent: GPTBot\nDisallow: /"
+    },
+    "sitemap": {
+      "status": 200,
+      "text": "<urlset/>"
+    },
+    "errors": []
+  }
+}

@@ -1,0 +1,3 @@
+﻿ID,URL,Priority,Finding,Evidence,Confidence,Action,Owner,Acceptance,Status
+SEO-001,https://demo.example/services.html,Medium,Missing meta description,No description value extracted,Observed,Add an accurate page summary where appropriate.,SEO / Content,Description is present and reviewed for accuracy.,Open
+SEO-002,https://demo.example/services.html,High,Malformed JSON-LD,Unparseable blocks: 1,Observed,"Repair JSON syntax, then validate relevant schema properties separately.",Developer,JSON parses; relevant schema passes the selected validator.,Open

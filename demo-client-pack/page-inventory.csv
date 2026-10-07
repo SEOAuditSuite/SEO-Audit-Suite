@@ -1,0 +1,3 @@
+﻿URL,Status,Title,Description,H1,Words,Canonical,Generic_meta_noindex,Schema_types,Render_mode
+https://demo.example/,200,Demo Home Services,A synthetic website used only for testing.,Demo home services,57,,False,Organization,HTTP
+https://demo.example/services.html,200,Demo Service Details,,Demo service details,32,,False,,HTTP

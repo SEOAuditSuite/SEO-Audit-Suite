@@ -5,7 +5,7 @@ from html import escape
 from io import BytesIO
 from urllib.parse import urlparse
 
-REPORT_ENGINE_VERSION = "6.5-final-gui-report-polish"
+REPORT_ENGINE_VERSION = "6.1-client-evidence"
 
 
 def _safe(value, fallback=""):
@@ -42,9 +42,9 @@ def _finding_library(signal):
             "why": "Relevant structured data provides machine-readable context for entities and eligible content types.",
             "action": "Expand valid page-appropriate Schema.org coverage across priority templates and content types.",
         },
-        "Content depth": {
+        "Content length proxy": {
             "why": "Useful intent-matched page content gives search and AI systems more evidence to interpret, summarize and answer from.",
-            "action": "Strengthen thin priority pages with useful intent-matched information rather than filler text.",
+            "action": "Review search intent and usefulness manually; expand only where information is missing. Word count alone is not a quality diagnosis.",
         },
         "Internal architecture": {
             "why": "Clear contextual internal linking improves discovery, topical relationships and navigation between important pages.",
@@ -90,6 +90,9 @@ def build_client_report_model(audit, plan, client_name="", prepared_by="SEO Audi
     findings.sort(key=lambda x: (_priority_rank(x["priority"]), x.get("score", 0)))
 
     executive_points = []
+    crawler = raw.get("crawler", {})
+    if crawler.get("coverage_percent", 100) < 100:
+        executive_points.append("Crawler score is provisional: robots rules were unavailable and excluded from the score.")
     weak = [x for x in findings if x["priority"] == "HIGH"]
     medium = [x for x in findings if x["priority"] == "MEDIUM"]
     strong_components = [
@@ -98,11 +101,11 @@ def build_client_report_model(audit, plan, client_name="", prepared_by="SEO Audi
     ]
     if weak:
         executive_points.append(
-            f"Highest-priority improvement areas: {', '.join(x['service_area'] for x in weak[:3])}."
+            f"Model-identified review areas: {', '.join(x['service_area'] for x in weak[:3])}."
         )
     if strong_components:
         executive_points.append(
-            f"Strong current foundations: {', '.join(strong_components[:4])}."
+            f"Stronger heuristic signals: {', '.join(strong_components[:4])}."
         )
     if medium:
         executive_points.append(
@@ -143,7 +146,9 @@ def build_client_report_model(audit, plan, client_name="", prepared_by="SEO Audi
         "prepared_by": _safe(prepared_by, "SEO Audit Suite Pro"),
         "website": url,
         "domain": _domain(url),
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %z"),
+        "render_mode": "Browser-rendered" if audit.get("browser_used") else "HTTP HTML fallback",
+        "scope_note": "Sampled audit. AEO, GEO, entity and crawler checks refer to the first successfully fetched page; other summaries use the crawl sample. Word counts are length proxies, not content quality. Rankings, AI citations and schema eligibility are not verified.",
         "readiness": audit.get("readiness", "Weak"),
         "ai_search_score": audit.get("score", 0),
         "pages_crawled": audit.get("pages_crawled", 0),
@@ -231,7 +236,8 @@ def build_client_report_pdf(model):
 
     story = []
     story.append(Paragraph(escape(model["report_title"]), styles["ReportTitle"]))
-    story.append(Paragraph("Professional client report generated from browser-rendered SEO and AI-search audit evidence.", styles["SubTitle"]))
+    story.append(Paragraph(escape("SEO audit evidence - " + model.get("render_mode", "Not recorded")), styles["SubTitle"]))
+    story.append(Paragraph(escape(model.get("scope_note", "")), styles["Small"]))
     meta_lines = [
         f"<b>Website:</b> {escape(model['website'])}",
         f"<b>Audit date:</b> {escape(model['generated_at'])}",
@@ -270,7 +276,7 @@ def build_client_report_pdf(model):
     story.append(Paragraph(
         f"The audited site achieved an <b>AI Search Audit Score of {model['ai_search_score']}/100</b> with <b>{escape(model['readiness'])}</b> readiness. "
         f"The crawl covered {model['pages_crawled']} page(s), with {model['schema_coverage']}% structured-data coverage, "
-        f"an average of {model['average_words']} rendered words per page and {model['internal_destinations']} unique internal destinations.",
+        f"an average of {model['average_words']} extracted word tokens per page and {model['internal_destinations']} unique internal destinations.",
         styles["Body2"],
     ))
     story.append(Spacer(1, 2 * mm))
@@ -278,6 +284,7 @@ def build_client_report_pdf(model):
         story.append(Paragraph(f"- {escape(point)}", styles["Body2"]))
     story.append(Spacer(1, 5 * mm))
 
+    story.append(PageBreak())
     story.append(Paragraph("AI Search Signal Breakdown", styles["Section"]))
     component_rows = [["Signal", "Score", "Weight"]]
     for name, (score, weight) in model.get("components", {}).items():
@@ -311,7 +318,7 @@ def build_client_report_pdf(model):
         story.append(KeepTogether([Paragraph("Traditional SEO Scorecard (legacy checklist components)", styles["Section"]), trad_table]))
 
     story.append(Spacer(1, 5 * mm))
-    story.append(Paragraph("Prioritized Findings", styles["Section"]))
+    story.append(Paragraph("Model-Based Review Prompts", styles["Section"]))
     if not model.get("findings"):
         story.append(Paragraph("No major weak components were detected by the current AI Search Audit model.", styles["Body2"]))
     else:
@@ -324,6 +331,16 @@ def build_client_report_pdf(model):
                 Paragraph(f"<b>Audit evidence:</b> {item['score']}/100 signal score; {item['weight']}% weight in the AI Search Audit model.", styles["Small"]),
                 Spacer(1, 4 * mm),
             ]
+            story.append(KeepTogether(block))
+
+    if model.get("issue_log"):
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph("Page-Level Evidence & Acceptance Criteria", styles["Section"]))
+        for issue in model["issue_log"]:
+            block = [Paragraph(escape(f"{issue['ID']} - {issue['Priority']} - {issue['Finding']}"), styles["FindingTitle"])]
+            for label in ("URL", "Evidence", "Confidence", "Action", "Owner", "Acceptance"):
+                block.append(Paragraph(f"<b>{label}:</b> {escape(str(issue[label]))}", styles["Body2"]))
+            block.append(Spacer(1, 4 * mm))
             story.append(KeepTogether(block))
 
     def roadmap_section(title, items):
@@ -341,13 +358,13 @@ def build_client_report_pdf(model):
             ]
             story.append(KeepTogether(block))
 
-    story.append(PageBreak())
+    story.append(Spacer(1, 5 * mm))
     roadmap_section("First 30 Days - Foundation & Critical Gaps", model.get("first_30_days", []))
     roadmap_section("Days 31-60 - Expansion, Authority & Validation", model.get("days_31_60", []))
 
     story.append(Paragraph("Scope & Methodology", styles["Section"]))
     story.append(Paragraph(
-        "This report is generated from the SEO Audit Suite Pro browser-rendered crawl and its application-defined SEO/AEO/GEO/entity/crawler/authority/reputation models. "
+        "This report is generated from the recorded crawl mode and application-defined SEO/AEO/GEO/entity/crawler/authority/reputation models. "
         "Scores summarize observable signals in this run and are designed for prioritization and client communication.",
         styles["Body2"],
     ))
@@ -380,6 +397,12 @@ def build_client_report_html(model):
             for name, score in model.get("scorecards", [])
         )
 
+    page_evidence = "".join(
+        "<article class='finding'><h3>" + escape(issue['ID'] + " - " + issue['Finding']) + "</h3>" +
+        "".join("<p><b>" + label + ":</b> " + escape(str(issue[label])) + "</p>" for label in
+                ("Priority", "URL", "Evidence", "Confidence", "Action", "Owner", "Acceptance")) + "</article>"
+        for issue in model.get('issue_log', [])
+    )
     findings = "".join(
         f"<article class='finding'><span class='pill {escape(item['priority'].lower())}'>{escape(item['priority'])}</span>"
         f"<h3>{escape(item['service_area'])}</h3>"
@@ -419,15 +442,16 @@ h1{{margin:0 0 8px;font-size:30px}} h2{{margin-top:0}} .muted{{color:#657083}} .
 table{{width:100%;border-collapse:collapse}} td,th{{padding:9px;border:1px solid #dce2ea;text-align:left}} th{{background:#edf2f7}}
 .finding,.road{{border:1px solid #e0e5ec;border-radius:12px;padding:15px;margin:12px 0}} .pill{{font-size:11px;font-weight:700;border-radius:999px;padding:4px 8px;background:#eef2f7}}
 .pill.high{{background:#fde8e8;color:#9b1c1c}} .pill.medium{{background:#fff2d8;color:#845400}} .pill.opportunity{{background:#e8f5ea;color:#256b34}}
-small,.note{{color:#657083}} @media(max-width:800px){{.scores{{grid-template-columns:repeat(2,1fr)}}}}
+small,.note{{color:#657083}} article,p,td{{overflow-wrap:anywhere}} @media(max-width:800px){{.scores{{grid-template-columns:repeat(2,1fr)}}}}
 </style></head><body><main>
 <section class='hero'><h1>{escape(model['report_title'])}</h1><div class='muted'>Professional SEO + AI Search client report</div>
 <p><b>Website:</b> {escape(model['website'])}<br>{f"<b>Client:</b> {escape(model['client_name'])}<br>" if model.get('client_name') else ''}<b>Prepared by:</b> {escape(model['prepared_by'])}<br><b>Audit date:</b> {escape(model['generated_at'])}</p>
-<div class='scores'>{score_cards()}</div></section>
+<p class='note'>{escape(model.get('render_mode',''))}: {escape(model.get('scope_note',''))}</p><div class='scores'>{score_cards()}</div></section>
 <section class='card'><h2>Executive Summary</h2><p>AI Search Audit Score: <b>{model['ai_search_score']}/100</b> - {escape(model['readiness'])} readiness.</p><ul>{exec_points}</ul></section>
 <section class='card'><h2>AI Search Signal Breakdown</h2><table><thead><tr><th>Signal</th><th>Score</th><th>Weight</th></tr></thead><tbody>{component_rows}</tbody></table></section>
 <section class='card'><h2>Traditional SEO Scorecard <span class='muted'>(legacy checklist components)</span></h2><p class='note'>Legacy AEO Checklist is the older Complete Audit heuristic; AEO Intelligence 2.0 is the dedicated AI-search readiness model shown above.</p><table><thead><tr><th>Category</th><th>Score</th></tr></thead><tbody>{traditional_rows}</tbody></table></section>
-<section class='card'><h2>Prioritized Audit Findings</h2>{findings}</section>
+<section class='card'><h2>Model-Based Review Prompts</h2>{findings}</section>
+<section class='card'><h2>Page-Level Evidence & Acceptance Criteria</h2>{page_evidence or '<p>See the accompanying audit evidence.</p>'}</section>
 <section class='card'><h2>First 30 Days</h2>{roadmap(model.get('first_30_days', []))}</section>
 <section class='card'><h2>Days 31-60</h2>{roadmap(model.get('days_31_60', []))}</section>
 <section class='card'><h2>Scope & Methodology</h2><p>{escape(model.get('audit_disclaimer',''))}</p><p>{escape(model.get('strategy_disclaimer',''))}</p><small>Engine: {escape(model.get('engine',''))}</small></section>

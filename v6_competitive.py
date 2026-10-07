@@ -1,3 +1,4 @@
+from common import has_parsed_schema
 from urllib.parse import urlparse
 
 from common import crawl_site, normalize_url, overall_scores, canonical_url
@@ -97,7 +98,7 @@ def build_competitor_profile(url, crawl_limit=5):
     reputation = analyze_reputation(pages)
 
     avg_words = round(sum(p.word_count for p in pages) / len(pages)) if pages else 0
-    schema_pages = sum(1 for p in pages if p.schema_blocks)
+    schema_pages = sum(1 for p in pages if has_parsed_schema(p))
     schema_coverage = round(schema_pages / len(pages) * 100) if pages else 0
     unique_destinations = len({
         canonical_url(item.get("url", ""))
@@ -114,7 +115,7 @@ def build_competitor_profile(url, crawl_limit=5):
         "Crawler Access": crawler.get("score", 0),
         "Authority": authority.get("score", 0),
         "Reputation": reputation.get("score", 0),
-        "Content Depth": _content_score(avg_words),
+        "Content length proxy": _content_score(avg_words),
         "Schema Coverage": _schema_coverage_score(schema_coverage),
         "Internal Architecture": _internal_architecture_score(unique_destinations),
     }
@@ -249,7 +250,7 @@ def _service_area(metric):
         "Crawler Access": "AI Crawler Accessibility",
         "Authority": "Authority / Trust Foundations",
         "Reputation": "Reputation / Social Proof",
-        "Content Depth": "Content Strategy",
+        "Content length proxy": "Content Strategy",
         "Schema Coverage": "Structured Data",
         "Internal Architecture": "Internal Linking / Information Architecture",
     }

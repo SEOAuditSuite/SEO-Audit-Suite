@@ -9,7 +9,7 @@ from aeo_engine import (
     calculate_aeo_score_v2,
 )
 
-V6_ENGINE_VERSION = "6.1-phase1-integration"
+V6_ENGINE_VERSION = "6.1-evidence-workflow"
 
 IDENTITY_TYPES = {
     "organization", "localbusiness", "corporation", "person", "place",
@@ -185,78 +185,72 @@ def analyze_entities(page):
     }
 
 
-def _robots_groups(text):
-    groups, agents, rules = [], [], []
-    for raw in (text or "").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line or ":" not in line:
-            continue
-        k, v = [x.strip() for x in line.split(":", 1)]
-        k = k.lower()
-        if k == "user-agent":
-            if agents and rules:
-                groups.append((agents, rules)); agents, rules = [], []
-            agents.append(v.lower())
-        elif k in ("allow", "disallow") and agents:
-            rules.append((k, v))
-    if agents:
-        groups.append((agents, rules))
-    return groups
-
-
-def analyze_ai_crawlers(page, base_url):
-    rs = get_robots_sitemap(base_url)
+def analyze_ai_crawlers(page, base_url, discovery=None):
+    """Inspect the audited URL; unavailable robots evidence remains unknown."""
+    from robots_rules import evaluate_robots
+    rs = discovery if discovery is not None else get_robots_sitemap(base_url)
     robots, sitemap = rs.get("robots") or {}, rs.get("sitemap") or {}
-    groups = _robots_groups(robots.get("text", ""))
-    bots = ["gptbot", "oai-searchbot", "chatgpt-user", "google-extended", "claudebot", "perplexitybot"]
-    bot_rows = []
-    for bot in bots:
-        matching = [rules for agents, rules in groups if bot in agents]
-        explicit = bool(matching)
-        blocked = any(
-            k == "disallow" and v.strip() == "/"
-            for rules in matching for k, v in rules
-        )
-        bot_rows.append({
-            "crawler": bot,
-            "explicit_rule": explicit,
-            "blocked_all": blocked,
-            "status": "Explicitly blocked" if blocked else "No full-site block detected",
+    code = robots.get("status")
+    known = code is not None and 200 <= code < 300
+    absent = code in (404, 410)
+    # Training controls and user-triggered fetchers are informational, not search penalties.
+    bots = {
+        "googlebot": "Search crawler",
+        "oai-searchbot": "Search crawler",
+        "perplexitybot": "Search crawler",
+        "gptbot": "Training control",
+        "google-extended": "Training / grounding control",
+        "claudebot": "Training control",
+        "chatgpt-user": "User-triggered fetcher",
+    }
+    target = page.final_url or base_url
+    rows = []
+    for bot, purpose in bots.items():
+        rule = evaluate_robots(robots.get("text", "") if known else "", bot, target)
+        blocked = rule["blocked"] if known else False if absent else None
+        rows.append({
+            "crawler": bot, "purpose": purpose,
+            "explicit_rule": known and rule["group"] == "specific",
+            "blocked_url": blocked,
+            "group": rule["group"] if known else "none" if absent else "unknown",
+            "matched_rule": rule["matched_rule"] if known else "robots.txt absent" if absent else "Not verified",
+            "status": ("Blocked for this URL" if blocked else "No matching restriction for this URL")
+                      if known else "robots.txt absent; no rules retrieved" if absent else "Unknown: robots.txt not available",
         })
-
-    robots_ok = robots.get("status") == 200
-    sitemap_ok = sitemap.get("status") == 200
-    canonical_ok = not page.canonical or canonical_url(page.canonical) == canonical_url(page.final_url)
+    search_rows = [r for r in rows if r["purpose"] == "Search crawler"]
+    blocked = [r["crawler"] for r in search_rows if r["blocked_url"] is True]
+    canonical_ok = not page.canonical or canonical_url(page.canonical) == canonical_url(target)
     indexable = not page.noindex
     content_ok = page.word_count >= 100
-    rendered = bool(page.browser_rendered)
-    score = sum([
-        15 if robots_ok else 0, 15 if sitemap_ok else 0, 20 if indexable else 0,
-        15 if canonical_ok else 0, 20 if content_ok else 0, 15 if rendered else 0,
-    ])
-    blocked = [x["crawler"] for x in bot_rows if x["blocked_all"]]
-    if blocked:
-        score = max(0, score - min(30, 5 * len(blocked)))
-
+    sitemap_ok = sitemap.get("status") == 200
+    components = [
+        ("Search robots rules", 0 if blocked else 100 if known or absent else None, 30),
+        ("No generic meta noindex", 100 if indexable else 0, 25),
+        ("Canonical consistency", 100 if canonical_ok else 0, 20),
+        ("Text availability proxy", 100 if content_ok else 0, 15),
+        ("Default sitemap retrieval", 100 if sitemap_ok else 0, 10),
+    ]
+    weight = sum(w for _, value, w in components if value is not None)
+    score = round(sum(value * w for _, value, w in components if value is not None) / weight)
     findings = []
-    if not robots_ok:
-        findings.append(("HIGH", "robots.txt was not successfully retrieved.", "Crawler Access"))
+    if not known and not absent:
+        findings.append(("MEDIUM", "Robots rules are unverified; excluded from the accessibility score.", "Crawler Access"))
     if blocked:
-        findings.append(("HIGH", f"Full-site blocking detected for: {', '.join(blocked)}.", "AI Crawler Access"))
+        findings.append(("HIGH", f"Audited URL has matching Disallow rules for: {', '.join(blocked)}. Confirm intended access before changing rules.", "Search Crawler Access"))
     if not indexable:
-        findings.append(("HIGH", "The audited page carries a noindex signal.", "Indexability"))
+        findings.append(("HIGH", "Generic meta noindex/none detected on the audited URL. Confirm intended indexability.", "Indexability"))
     if not canonical_ok:
-        findings.append(("MEDIUM", "Canonical does not match the rendered final URL.", "Canonical Consistency"))
+        findings.append(("MEDIUM", "Canonical points to another URL; verify whether consolidation is intended.", "Canonical"))
     if not sitemap_ok:
-        findings.append(("MEDIUM", "sitemap.xml was not successfully retrieved.", "Discovery"))
-
-    readiness = "Strong" if score >= 80 else "Good" if score >= 60 else "Developing" if score >= 40 else "Weak"
+        findings.append(("OPPORTUNITY", "Default /sitemap.xml was not retrieved; inspect declared or alternative sitemap locations.", "Discovery"))
     return {
-        "score": min(score, 100), "readiness": readiness,
-        "robots_status": robots.get("status"), "sitemap_status": sitemap.get("status"),
-        "indexable": indexable, "canonical_ok": canonical_ok, "rendered": rendered,
-        "content_ok": content_ok, "bots": bot_rows, "findings": findings,
-        "errors": rs.get("errors", []),
+        "score": score, "readiness": "Strong" if score >= 80 else "Good" if score >= 60 else "Developing" if score >= 40 else "Weak",
+        "robots_status": code, "sitemap_status": sitemap.get("status"),
+        "indexable": indexable, "canonical_ok": canonical_ok,
+        "rendered": bool(page.browser_rendered), "content_ok": content_ok,
+        "bots": rows, "findings": findings, "errors": rs.get("errors", []),
+        "coverage_percent": weight, "evaluated_url": target,
+        "limitations": "URL-specific robots rule simulation, not observed bot access. Vendor behavior varies. Generic meta robots only; HTTP X-Robots-Tag, bot-specific meta directives, WAF and login restrictions need separate verification. Training controls do not lower the search score. Rendering mode is informational.",
     }
 
 
@@ -268,12 +262,12 @@ def calculate_geo(aeo, entity, crawler, page):
     schema_score = 100 if schema_count >= 4 else 75 if schema_count >= 3 else 50 if schema_count >= 2 else 25 if schema_count == 1 else 0
     links = len(page.internal_links or [])
     linking_score = 100 if links >= 20 else 75 if links >= 10 else 50 if links >= 5 else 25 if links else 0
-    relevance = 100 if page.word_count >= 500 else 80 if page.word_count >= 300 else 60 if page.word_count >= 150 else 30 if page.word_count >= 50 else 10
+    relevance = 100 if page.word_count >= 500 else 80 if page.word_count >= 300 else 60 if page.word_count >= 150 else 30 if page.word_count >= 50 else 0
     components = {
         "AEO readiness": (aeo_score, 30),
         "Entity clarity": (entity_score, 20),
         "AI crawler accessibility": (crawler_score, 20),
-        "Content relevance": (relevance, 15),
+        "Content length proxy": (relevance, 15),
         "Structured data": (schema_score, 10),
         "Internal linking": (linking_score, 5),
     }
@@ -283,4 +277,4 @@ def calculate_geo(aeo, entity, crawler, page):
         if value < 50:
             opportunities.append(("HIGH" if weight >= 20 else "MEDIUM", f"{name} is a weak GEO signal ({value}/100).", name))
     readiness = "Strong" if score >= 80 else "Good" if score >= 60 else "Developing" if score >= 40 else "Weak"
-    return {"score": score, "readiness": readiness, "components": components, "opportunities": opportunities}
+    return {"score": score, "readiness": readiness, "components": components, "opportunities": opportunities, "limitations": "Content length, schema count and link count are heuristic proxies. They do not measure semantic relevance, schema eligibility, rankings or AI citations. Manual intent and quality review is required."}

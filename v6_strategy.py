@@ -1,3 +1,4 @@
+from common import has_parsed_schema
 from urllib.parse import urlparse
 
 from common import crawl_site, normalize_url, overall_scores, canonical_url
@@ -72,9 +73,9 @@ def _priority(score):
     return "STRONG"
 
 
-def build_ai_search_audit(url, crawl_limit=10):
+def build_ai_search_audit(url, crawl_limit=10, crawl=None, discovery=None):
     target = normalize_url(url)
-    crawl = crawl_site(target, limit=crawl_limit, prefer_browser=True)
+    crawl = crawl if crawl is not None else crawl_site(target, limit=crawl_limit, prefer_browser=True)
     pages = crawl.get("pages", [])
     if not pages:
         return {
@@ -87,13 +88,13 @@ def build_ai_search_audit(url, crawl_limit=10):
     seo = overall_scores(pages)
     aeo = build_aeo_v2_for_page(home)
     entity = analyze_entities(home)
-    crawler = analyze_ai_crawlers(home, home.final_url or target)
+    crawler = analyze_ai_crawlers(home, home.final_url or target, discovery=discovery)
     geo = calculate_geo(aeo, entity, crawler, home)
     authority = analyze_authority(pages)
     reputation = analyze_reputation(pages)
 
     avg_words = round(sum(p.word_count for p in pages) / len(pages)) if pages else 0
-    schema_pages = sum(1 for p in pages if p.schema_blocks)
+    schema_pages = sum(1 for p in pages if has_parsed_schema(p))
     schema_coverage = round(schema_pages / len(pages) * 100) if pages else 0
     unique_internal = len({
         canonical_url(item.get("url", ""))
@@ -111,7 +112,7 @@ def build_ai_search_audit(url, crawl_limit=10):
         "Entity clarity": (entity.get("score", 0), 15),
         "AI crawler accessibility": (crawler.get("score", 0), 15),
         "Structured data coverage": (structured_data, 10),
-        "Content depth": (content_depth, 10),
+        "Content length proxy": (content_depth, 10),
         "Internal architecture": (internal_architecture, 10),
         "Authority foundations": (authority.get("score", 0), 10),
         "Reputation foundations": (reputation.get("score", 0), 5),
@@ -126,7 +127,7 @@ def build_ai_search_audit(url, crawl_limit=10):
         "Entity clarity": "Entity SEO / Structured Identity",
         "AI crawler accessibility": "AI Crawler Accessibility",
         "Structured data coverage": "Structured Data",
-        "Content depth": "Content Strategy",
+        "Content length proxy": "Content Strategy",
         "Internal architecture": "Internal Linking / Information Architecture",
         "Authority foundations": "Authority / Trust Foundations",
         "Reputation foundations": "Reputation / Social Proof",
@@ -236,9 +237,9 @@ def build_30_60_day_strategy(audit):
             "Clear internal relationships help discovery, context and topical navigation.",
             "Priority destinations receive stronger contextual internal-link coverage.")
 
-    if scores.get("Content depth", 100) < 60:
+    if scores.get("Content length proxy", 100) < 60:
         add(first, "MEDIUM", "Content Strategy",
-            "Strengthen thin priority pages with useful intent-matched information rather than filler text.",
+            "Review search intent and usefulness manually; expand only where information is missing. Word count alone is not a quality diagnosis.",
             "Substantive page content gives search and AI systems more evidence to interpret and answer from.",
             "Priority pages show stronger useful-content depth and clearer intent coverage.")
 

@@ -18,13 +18,15 @@ if st.button("Run AI Crawler Audit",type="primary",use_container_width=True):
             if not crawl.get("pages"): st.error("The page could not be analyzed.")
             else:
                 p=crawl["pages"][0]; r=analyze_ai_crawlers(p,target); st.success("AI Crawler Accessibility audit completed.")
-                c1,c2,c3,c4=st.columns(4); c1.metric("Accessibility Score",f"{r['score']}/100"); c1.caption(f"Readiness: {r['readiness']}"); c2.metric("robots.txt",r['robots_status'] or "Error"); c3.metric("sitemap.xml",r['sitemap_status'] or "Error"); c4.metric("Indexable","Yes" if r['indexable'] else "No")
+                c1,c2,c3,c4=st.columns(4); c1.metric("Accessibility Score",f"{r['score']}/100"); c1.caption(f"Readiness: {r['readiness']}"); c2.metric("robots.txt",r['robots_status'] or "Error"); c3.metric("sitemap.xml",r['sitemap_status'] or "Error"); c4.metric("Generic meta noindex","Not detected" if r['indexable'] else "Detected")
                 st.subheader("Technical Access Signals")
                 a,b,c=st.columns(3); a.metric("Canonical Consistency","Pass" if r['canonical_ok'] else "Review"); b.metric("Rendered DOM","Yes" if r['rendered'] else "No"); c.metric("Substantial Content","Yes" if r['content_ok'] else "Review")
+                st.caption(r["limitations"])
+                st.caption(f"Evidence coverage: {r['coverage_percent']}% · URL: {r['evaluated_url']}")
                 st.subheader("Named Crawler Rules")
                 for item in r['bots']:
-                    mark="⛔" if item['blocked_all'] else "✓"; explicit="explicit robots rule detected" if item['explicit_rule'] else "no explicit bot-specific rule detected"
-                    st.write(f"{mark} **{item['crawler']}** — {item['status']} ({explicit})")
+                    mark="?" if item["blocked_url"] is None else "⛔" if item["blocked_url"] else "✓"; explicit="explicit robots rule detected" if item['explicit_rule'] else "no explicit bot-specific rule detected"
+                    st.write(f"{mark} **{item['crawler']}** — {item['status']} ({item['purpose']}; {item['matched_rule']})")
                 st.subheader("Accessibility Opportunities")
                 if not r['findings']: st.success("No major crawler-access gaps were detected by this model.")
                 for priority,finding,area in r['findings']:

@@ -1,3 +1,4 @@
+from common import has_parsed_schema
 import streamlit as st
 
 from ui import apply_global_ui
@@ -22,7 +23,7 @@ if st.button("🚀 Run Professional Audit",type="primary"):
 
     scores=overall_scores(pages)
     rs=get_robots_sitemap(pages[0].final_url)
-    total_schema=sum(bool(p.schema_blocks) for p in pages)
+    total_schema=sum(has_parsed_schema(p) for p in pages)
     total_links=sum(len(p.internal_links) for p in pages)
     empty_anchors=sum(sum(i["anchor"]=="(empty anchor)" for i in p.internal_links) for p in pages)
     unique_imgs=len({i.get("src") for p in pages for i in p.images if i.get("src")})
@@ -64,7 +65,7 @@ if st.button("🚀 Run Professional Audit",type="primary"):
       (not p.images or all(bool(i.get('alt','').strip()) for i in p.images),"Image ALT coverage",f"{sum(bool(i.get('alt','').strip()) for i in p.images)}/{len(p.images)}",
        "Descriptive ALT text improves accessibility and gives search engines useful context for informative images.",
        "Review image ALT text and add concise, descriptive text to informative images where appropriate.","Image SEO / Accessibility"),
-      (bool(p.schema_blocks),"Homepage structured data",f"{', '.join(p.schema_types) or 'No JSON-LD on first page'}",
+      (has_parsed_schema(p),"Homepage structured data",f"{', '.join(p.schema_types) or 'No JSON-LD on first page'}",
        "Relevant structured data can help search engines understand eligible page entities and content types.",
        "Audit the homepage for relevant Schema.org opportunities and align any markup with the page's actual content and eligibility.","Technical SEO / Structured Data"),
       (bool(p.og.get('og:title')),"Open Graph", "og:title found" if p.og.get('og:title') else "og:title missing",

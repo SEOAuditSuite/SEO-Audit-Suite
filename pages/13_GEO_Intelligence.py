@@ -42,6 +42,7 @@ if st.button("Run GEO Intelligence", type="primary", use_container_width=True):
                 c4.metric("Crawler Access", f"{crawler['score']}/100")
 
                 st.caption("GEO now reuses the same AEO 2.0, Entity and AI Crawler engines used by the standalone V6 modules.")
+                st.caption(geo["limitations"])
                 st.subheader("GEO Signal Breakdown")
                 for name, (score, weight) in geo["components"].items():
                     st.write(f"**{name}** — {score}/100 · Weight {weight}%")

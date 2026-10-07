@@ -55,7 +55,9 @@ def word_tokens(text):
 
 
 def _body_text(soup):
-    body = soup.body or soup
+    # Work on a copy: removing scripts here must not erase JSON-LD from the audit.
+    copy = BeautifulSoup(str(soup.body or soup), "html.parser")
+    body = copy.body or copy
     for tag in body.find_all(["script", "style", "noscript", "svg"]):
         tag.decompose()
     return clean_text(body.get_text(" ", strip=True))
@@ -103,9 +105,9 @@ def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=Fa
         if "canonical" in rels and link.get("href"):
             canonical = absolute_url(final_url, link["href"].strip())
             break
-    robots = soup.find("meta", attrs={"name": re.compile(r"^robots$", re.I)})
-    robots_meta = clean_text(robots.get("content", "")) if robots else ""
-    noindex = "noindex" in robots_meta.lower()
+    robots = soup.find_all("meta", attrs={"name": re.compile(r"^robots$", re.I)})
+    robots_meta = ", ".join(clean_text(tag.get("content", "")) for tag in robots)
+    noindex = bool(set(re.split(r"[\s,]+", robots_meta.lower())) & {"noindex", "none"})
 
     headings = {f"h{i}": [clean_text(x.get_text(" ", strip=True)) for x in soup.find_all(f"h{i}")]
                 for i in (1, 2, 3)}
@@ -286,7 +288,8 @@ def page_to_dict(page): return asdict(page)
 
 
 def get_robots_sitemap(base):
-    base = normalize_url(base); out = {"robots":None,"sitemap":None,"errors":[]}
+    parsed = urlparse(normalize_url(base))
+    base = f"{parsed.scheme}://{parsed.netloc}"; out = {"robots":None,"sitemap":None,"errors":[]}
     for key, path in (("robots","/robots.txt"),("sitemap","/sitemap.xml")):
         try:
             r=fetch(base+path); out[key]={"status":r.status_code,"url":r.url,"text":r.text}
@@ -321,6 +324,13 @@ def _score_checks(checks):
     return round(100*passed/max(total,1)), passed, total-passed
 
 
+def has_parsed_schema(page):
+    """A malformed block is evidence of an error, not successful JSON-LD coverage."""
+    return any(isinstance(block, (dict, list)) and bool(block) and
+               not (isinstance(block, dict) and block.get('_parse_error'))
+               for block in (page.schema_blocks or []))
+
+
 def category_scores(p):
     technical=[
         ("Status", 200 <= p.status < 400), ("Canonical", bool(p.canonical)),
@@ -331,7 +341,7 @@ def category_scores(p):
         ("One primary H1", len(p.h1)==1), ("Useful H2 structure", bool(p.h2)),
         ("Content depth", p.word_count>=300),
     ]
-    schema=[("JSON-LD detected", bool(p.schema_blocks)), ("Schema types identified", bool(p.schema_types))]
+    schema=[("JSON-LD detected", has_parsed_schema(p)), ("Schema types identified", bool(p.schema_types))]
     imgs=[("ALT coverage", not p.images or all(bool(i.get("alt","").strip()) for i in p.images)),
           ("Images rendered", bool(p.images) or True)]
     social=[("OG title",bool(p.og.get("og:title"))), ("OG image",bool(p.og.get("og:image"))),
@@ -344,7 +354,7 @@ def aeo_score(p):
         ("Clear title",bool(p.title)), ("Primary H1",len(p.h1)==1),
         ("Question-style headings",any("?" in x for x in p.h2+p.h3)),
         ("Lists/tables where useful",p.lists>0 or p.tables>0),
-        ("Structured data",bool(p.schema_blocks)),
+        ("Structured data",has_parsed_schema(p)),
         ("Substantial text",p.word_count>=300), ("Open Graph",bool(p.og.get("og:title"))),
     ]
     return _score_checks(checks), checks
@@ -389,7 +399,7 @@ def html_report(site,crawl,findings,scores=None):
     page_count=len(pages)
     crawl_errors=len(crawl.get("errors",[]))
     internal_links=sum(len(p.internal_links) for p in pages)
-    schema_pages=sum(bool(p.schema_blocks) for p in pages)
+    schema_pages=sum(has_parsed_schema(p) for p in pages)
     image_count=sum(len(p.images) for p in pages)
     unique_imgs=len({i.get("src") for p in pages for i in p.images if i.get("src")})
 
