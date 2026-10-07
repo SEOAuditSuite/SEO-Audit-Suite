@@ -1,576 +1,346 @@
-# SEO Audit Suite Pro V5
+# SEO Audit Suite V6
 
-### Next-Generation SEO Audit Platform for the Evolving Search Landscape
+## AI Search Intelligence Platform for Modern SEO Auditing
 
-SEO Audit Suite Pro V5 is a browser-rendered Python/Streamlit SEO auditing platform built for modern websites, JavaScript-heavy experiences, technical SEO analysis, AI-search readiness, performance diagnostics, and client reporting.
+SEO Audit Suite V6 is a browser-rendered SEO and AI Search Intelligence platform built with Python and Streamlit.
 
-The platform goes beyond basic HTML checks by combining **browser-rendered crawling, technical SEO, on-page analysis, structured data, image SEO, internal linking, Core Web Vitals, AEO readiness and Google Search Console performance insights** into one workflow.
+It combines traditional technical SEO auditing with modern AI-search analysis across AEO, GEO, entity clarity, crawler accessibility, authority, reputation, competitive intelligence, strategy, and client reporting.
 
----
-
-## Why Next-Generation SEO?
-
-Search is evolving.
-
-Traditional SEO still matters, but modern search experiences increasingly involve:
-
-* AI-generated answers
-* AI-powered search experiences
-* Rich search results
-* Structured data
-* Contextual discovery
-* Entity understanding
-* User-intent-focused content
-* Performance and technical quality
-
-SEO Audit Suite Pro V5 is designed around this changing environment.
-
-Instead of looking only at traditional ranking factors, the platform helps identify technical, content, structured-data, performance and AI-search-readiness opportunities that can influence how a website is understood and discovered across modern search experiences.
-
-> **Important:** This application does not claim to predict Google rankings or AI-search rankings. Its scores are application-defined audit measurements designed to organize SEO evidence and identify optimization opportunities.
+The project is designed as a professional SEO auditing toolkit and portfolio platform for consultants, freelancers, agencies, and technical SEO specialists.
 
 ---
 
-# Core Capabilities
+## Key Capabilities
 
-| Module              | Purpose                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| Complete Audit      | Combined site-wide SEO health analysis                         |
-| Broken Links        | Detect and classify broken or suspicious links                 |
-| Sitemap & Robots    | Analyze XML sitemap and robots.txt configuration               |
-| PageSpeed           | Google PageSpeed Insights / Core Web Vitals analysis           |
-| Keywords & Headings | Analyze page content, keywords, H1/H2 structure and density    |
-| AEO / AI Readiness  | Heuristic analysis for answer-oriented and AI-search readiness |
-| Meta & Canonical    | Analyze titles, descriptions and canonical URLs                |
-| Image SEO           | Analyze rendered images and ALT coverage                       |
-| Schema              | Detect and analyze JSON-LD structured data                     |
-| Internal Links      | Analyze rendered internal linking and anchor text              |
-| GSC Performance     | Import Google Search Console performance data                  |
-| Client Reporting    | Generate evidence-based HTML client reports                    |
+### Traditional SEO
 
----
+- Complete SEO Audit
+- Broken Link Checker
+- Sitemap & Robots.txt Analyzer
+- PageSpeed & Core Web Vitals
+- Keyword Density & Heading Analysis
+- Meta & Canonical Audit
+- Image SEO
+- Schema Inspector
+- Redirect Checker
+- Internal Link Analysis
+- Google Search Console CSV Analysis
 
-# What Makes V5 Different?
+### AI Search Intelligence
 
-## Browser-Rendered Crawling
+- AEO Intelligence 2.0
+- GEO Intelligence
+- Entity Intelligence
+- AI Crawler Accessibility
+- AI Search Audit
+- Question Discovery
+- Direct Answer Detection
+- Answer Completeness Analysis
+- AI Search Readiness Scoring
 
-Modern websites frequently rely on JavaScript frameworks such as React and Next.js.
+### Authority & Trust
 
-Traditional HTTP-only crawlers can miss content that appears only after JavaScript execution.
+- Authority Intelligence
+- Reputation Intelligence
+- External Mention Verification
+- Backlink Evidence Verification
+- Social Profile Detection
+- Trust & Identity Signals
 
-V5 attempts to use the Chrome installation available on the machine to inspect the **rendered DOM**, allowing the audit to analyze content and elements that may not be visible in the initial HTML response.
+### Competitive Intelligence
 
-This helps with modern JavaScript-heavy websites.
+Compare your website against competitors across:
 
----
+- SEO
+- AEO
+- GEO
+- Entity clarity
+- AI crawler accessibility
+- Authority
+- Reputation
+- Content depth
+- Structured data
+- Internal architecture
 
-## Shared Crawl Dataset
+The comparison engine uses the same frozen dataset throughout each comparison run to keep scorecards and gap analysis consistent.
 
-The Complete Audit uses a shared crawl dataset across multiple SEO checks.
+### Strategy & Reporting
 
-This allows different audit sections to work from the same rendered crawl evidence instead of repeatedly performing unrelated scans.
-
-The result is a more consistent site-wide audit workflow.
-
----
-
-# Complete Audit
-
-The Complete Audit combines multiple SEO dimensions into one dashboard.
-
-Example scoring categories include:
-
-* Technical SEO
-* On-Page SEO
-* Social Metadata
-* Performance
-* Schema
-* AEO Readiness
-* Image SEO
-
-The audit also provides:
-
-* Crawl statistics
-* Page counts
-* Crawl errors
-* Site-wide findings
-* Page-level evidence
-* Prioritized findings
-* Recommended SEO actions
-* Client-oriented reporting
-
-### Example Audit Workflow
-
-```text
-Website
-   ↓
-Browser-Rendered Crawl
-   ↓
-Page & Site Evidence
-   ↓
-SEO Analysis
-   ↓
-Category Scores
-   ↓
-Prioritized Findings
-   ↓
-Recommended SEO Actions
-   ↓
-Client Report
-```
+- 30/60-Day SEO + AI Search Strategy
+- Prioritized SEO Opportunities
+- Service Area Recommendations
+- Client-Facing Findings
+- Professional PDF Reports
+- HTML Reports
+- Executive Summary
+- Audit Evidence Snapshot
 
 ---
 
-# Technical SEO
+## Browser-Rendered Auditing
 
-The platform evaluates important technical SEO signals including:
+SEO Audit Suite V6 uses browser rendering for supported audits so JavaScript-generated content can be analyzed.
 
-* Title tags
-* Meta descriptions
-* Canonical URLs
-* H1/H2 structure
-* Robots.txt
-* XML sitemap
-* HTTP responses
-* Crawl errors
-* Internal links
-* Redirect behavior
-* Rendered page content
+The crawler can inspect signals such as:
 
-The goal is not simply to return raw technical data, but to turn findings into actionable SEO opportunities.
+- Rendered headings
+- Rendered body content
+- Internal links
+- Images
+- Schema markup
+- Social metadata
+- Entity signals
+- Question-answer structures
 
----
-
-# Performance & Core Web Vitals
-
-The PageSpeed module integrates with the **Google PageSpeed Insights API**.
-
-It can surface metrics such as:
-
-* Performance score
-* Accessibility
-* Best Practices
-* SEO score
-* Largest Contentful Paint (LCP)
-* Cumulative Layout Shift (CLS)
-* Interaction to Next Paint (INP)
-* First Contentful Paint (FCP)
-* Time to First Byte (TTFB)
-
-### Example
-
-A website may have strong traditional SEO signals but still have significant performance weaknesses.
-
-V5 helps separate these areas so performance problems can be identified as their own optimization opportunity.
-
-> The main Complete Audit performance measurement is based on crawl-response timing. For Lighthouse/Core Web Vitals data, use the PageSpeed module.
+This helps reduce the limitations of static HTML-only SEO auditing.
 
 ---
 
-# AEO / AI Search Readiness
+## AEO Intelligence 2.0
 
-The AEO module provides a **heuristic checklist** focused on signals that can support answer-oriented search experiences.
+The AEO engine evaluates answer-engine readiness using observable page signals such as:
 
-It evaluates areas such as:
+- Question targeting
+- Direct answer coverage
+- Answer completeness
+- FAQ readiness
+- Answer-friendly lists and tables
+- Structured data
+- Search intent mapping
 
-* Clear page titles
-* H1 presence
-* Question-style headings
-* Lists and structured information
-* Structured data
-* Substantial content
-
-AEO Readiness is intended as an analytical framework rather than a ranking prediction.
-
-> **AEO Readiness is not a Google, ChatGPT, or AI-search ranking score.**
+AEO scores are application-defined readiness models and are not official scores from Google, OpenAI, Bing, Perplexity, or another platform.
 
 ---
 
-# Structured Data / Schema
+## GEO Intelligence
 
-The Schema module analyzes JSON-LD structured data found on rendered pages.
+The GEO model combines:
 
-It can identify schema types such as:
+- AEO readiness
+- Entity clarity
+- AI crawler accessibility
+- Content relevance
+- Structured data
+- Internal linking
 
-* Organization
-* Person
-* WebSite
-* WebPage
-* BreadcrumbList
-* BlogPosting
-* CollectionPage
-
-The audit can also show site-wide schema coverage so an SEO professional can quickly identify pages where structured data is missing.
+The GEO score is an application-defined heuristic intended for audit prioritization and client communication.
 
 ---
 
-# Image SEO
+## Entity Intelligence
 
-The Image SEO module analyzes rendered image elements and evaluates ALT coverage.
+Entity Intelligence evaluates:
 
-This is particularly useful for modern JavaScript websites where image elements may not be available in the initial HTML response.
-
-Example metrics include:
-
-```text
-Rendered Images
-Unique Image URLs
-ALT Present
-Missing ALT
-ALT Coverage
-```
+- Brand/business identity
+- Organization and LocalBusiness schema
+- Person/entity signals
+- Contact information
+- Address/location evidence
+- About-page signals
+- sameAs references
+- Rendered brand evidence
+- Structured entity relationships
 
 ---
 
-# Internal Linking
+## AI Crawler Accessibility
 
-The Internal Links module analyzes rendered same-domain links.
+Checks include:
 
-It can provide information about:
+- robots.txt
+- sitemap.xml
+- Indexability
+- Canonical consistency
+- Rendered DOM availability
+- Substantial content signals
+- Explicit bot-specific robots rules
 
-* Internal link counts
-* Destination URLs
-* Anchor text
-* Empty anchors
-* Same-domain linking patterns
+Named crawler checks include signals for:
 
-This helps identify internal-linking opportunities that may be difficult to detect with a simple page-source inspection.
+- GPTBot
+- OAI-SearchBot
+- ChatGPT-User
+- Google-Extended
+- ClaudeBot
+- PerplexityBot
 
----
-
-# Google Search Console Performance
-
-The GSC Performance module allows SEO professionals to import Google Search Console performance data from CSV.
-
-The analysis can surface:
-
-* Clicks
-* Impressions
-* CTR
-* Average position
-* Query-level performance
-
-Weighted CTR calculations are used where appropriate instead of simply averaging individual query CTR percentages.
-
-> GSC Performance data is an analytical input and is kept separate from the application's SEO audit score.
+The audit reports whether explicit blocking signals are detected. It does not guarantee that a crawler will crawl, index, cite, or use a website.
 
 ---
 
-# Client Reporting
+## Authority Intelligence
 
-SEO Audit Suite Pro V5 is designed with an SEO service workflow in mind.
+Authority Intelligence evaluates observable on-site authority foundations such as:
 
-Instead of presenting only technical errors, client-facing findings can be structured around:
+- HTTPS
+- Contact transparency
+- About/identity signals
+- Entity schema
+- Author/editorial signals
+- External citations
+- Content depth
+- Trust/policy pages
+- Internal architecture
+- Structured data coverage
 
-```text
-Finding
-   ↓
-Priority
-   ↓
-Why It Matters
-   ↓
-Recommended SEO Action
-   ↓
-Service Area
-```
-
-This makes the audit more suitable for professional SEO consulting and client reporting.
-
-The reporting language intentionally focuses on **recommended SEO actions and service opportunities** rather than turning the audit into a step-by-step DIY implementation guide.
+This score is not Google PageRank, Moz DA, Ahrefs DR, or Semrush Authority Score.
 
 ---
 
-# Priority System
+## Reputation Intelligence
 
-The client report uses simple priority categories:
+Reputation Intelligence evaluates:
 
-### HIGH
+- Review/rating schema
+- Testimonial/review content
+- Social profile footprint
+- Contact transparency
+- Address/location clarity
+- About/identity signals
+- Trust/policy pages
+- Brand consistency
 
-Requires attention first.
-
-### MEDIUM
-
-Important improvement that should be addressed.
-
-### OPPORTUNITY
-
-Additional optimization opportunity that may improve the site's overall SEO quality.
-
----
-
-# Supported SEO Areas
-
-SEO Audit Suite Pro V5 covers a broad SEO workflow:
-
-```text
-Technical SEO
-      +
-On-Page SEO
-      +
-JavaScript Rendering
-      +
-Performance
-      +
-Core Web Vitals
-      +
-Structured Data
-      +
-Image SEO
-      +
-Internal Linking
-      +
-AEO / AI Readiness
-      +
-Google Search Console
-      +
-Client Reporting
-```
+It does not automatically measure Google Reviews, marketplace reviews, social sentiment, or web-wide reputation.
 
 ---
 
-# Technology Stack
+## External Mentions & Backlink Evidence
 
-### Backend / Application
+Users can supply external URLs or a CSV file for verification.
 
-* Python
-* Streamlit
-* Requests
-* BeautifulSoup
-* Pandas
+The module can evaluate:
 
-### Browser Rendering
+- Brand mentions
+- Backlinks
+- Followed backlink evidence
+- Verified referring domains
+- Fetchability context
 
-* Google Chrome
-* Browser-rendered DOM analysis
+Only verified evidence contributes to the evidence score.
 
-### SEO / Web Analysis
-
-* HTTP analysis
-* HTML parsing
-* JavaScript-rendered content analysis
-* XML sitemap analysis
-* robots.txt analysis
-* JSON-LD / Schema analysis
-* Internal-link analysis
-* Image analysis
-
-### Performance
-
-* Google PageSpeed Insights API
-* Core Web Vitals / Lighthouse metrics
-
-### Reporting
-
-* HTML client reports
-* CSV-based performance analysis
+This is not a complete backlink index and does not replace platforms such as Ahrefs, Semrush, Majestic, or Google Search Console.
 
 ---
 
-# Project Structure
+## Competitive Intelligence
 
-```text
-seo-audit-suite-v5/
-│
-├── .github/
-│   └── workflows/
-│
-├── pages/
-│   ├── Broken Links
-│   ├── Sitemap & Robots
-│   ├── PageSpeed
-│   ├── Keywords & Headings
-│   ├── AEO / AI Readiness
-│   ├── Meta & Canonical
-│   ├── Image SEO
-│   ├── Schema
-│   ├── Complete Audit
-│   ├── Internal Links
-│   └── Google Search Console Performance
-│
-├── app.py
-├── common.py
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
+Competitive Intelligence compares the audited website against supplied competitor websites using a normalized browser-rendered crawl.
+
+It can identify:
+
+- Competitive strengths
+- Competitive gaps
+- Best competitor
+- Competitor average
+- Lead or gap versus competitors
+- Metric-by-metric evidence
+
+The module compares only the supplied websites and observable signals collected during the crawl.
+
+It does not measure traffic, rankings, conversions, market share, or proprietary backlink data.
 
 ---
 
-# Installation
+## AI Search Audit
 
-## Requirements
+The AI Search Audit synthesizes:
 
-* Windows, macOS or Linux
-* Python 3.x
-* Google Chrome recommended for browser-rendered analysis
+- AEO
+- Entity
+- AI crawler accessibility
+- Structured data
+- Content depth
+- Internal architecture
+- Authority
+- Reputation
 
-## Install Dependencies
+The final score provides a prioritized view of AI-search readiness based on observable website evidence.
+
+---
+
+## 30/60-Day Strategy
+
+The strategy engine converts audit evidence into a professional implementation roadmap.
+
+### First 30 Days
+
+Focuses on:
+
+- Critical technical gaps
+- Entity definition
+- Structured data
+- AEO improvements
+
+### Days 31–60
+
+Focuses on:
+
+- Reputation
+- Content expansion
+- Validation
+- Ongoing measurement
+
+---
+
+## Client Report & PDF
+
+SEO Audit Suite V6 can generate professional client-facing reports containing:
+
+- Executive Summary
+- Overall SEO Health
+- AI Search Audit Score
+- AEO Intelligence 2.0
+- GEO Intelligence
+- Entity Intelligence
+- AI Crawler Accessibility
+- Authority Intelligence
+- Reputation Intelligence
+- Traditional SEO Scorecard
+- Prioritized Findings
+- Recommended SEO Actions
+- Service Areas
+- 30/60-Day Strategy
+- Scope & Methodology
+- PDF Download
+- HTML Report Download
+
+---
+
+## Scoring Disclaimer
+
+Scores produced by SEO Audit Suite V6 are application-defined audit models based on observable website signals.
+
+They are not official scores from:
+
+- Google
+- OpenAI
+- Bing
+- Perplexity
+- Anthropic
+- Moz
+- Ahrefs
+- Semrush
+
+The tool does not guarantee rankings, traffic, conversions, backlinks, AI citations, or search-engine visibility.
+
+---
+
+## Technology
+
+- Python
+- Streamlit
+- Playwright
+- Requests
+- BeautifulSoup
+- Pandas
+- ReportLab
+- Google PageSpeed Insights API
+
+---
+
+## Installation
+
+Clone the repository:
 
 ```bash
-python -m pip install -r requirements.txt
-```
-
-## Start the Application
-
-```bash
-python -m streamlit run app.py
-```
-
-The application will open in the local browser.
-
----
-
-# PageSpeed API Configuration
-
-The PageSpeed module can use the Google PageSpeed Insights API.
-
-For production/client work, keep API credentials outside the repository.
-
-Recommended configuration:
-
-```text
-.streamlit/secrets.toml
-```
-
-or environment variables where appropriate.
-
-The repository's `.gitignore` is configured to help prevent sensitive configuration files from being committed.
-
-> Never commit API keys, passwords, tokens or private credentials to GitHub.
-
----
-
-# Example SEO Audit Workflow
-
-```text
-1. Enter Website URL
-        ↓
-2. Browser-Rendered Crawl
-        ↓
-3. Collect Page Evidence
-        ↓
-4. Analyze Technical SEO
-        ↓
-5. Analyze On-Page SEO
-        ↓
-6. Analyze Schema & Images
-        ↓
-7. Analyze Internal Links
-        ↓
-8. Evaluate AEO Readiness
-        ↓
-9. Review Performance
-        ↓
-10. Import GSC Data
-        ↓
-11. Review Prioritized Findings
-        ↓
-12. Generate Client Report
-```
-
----
-
-# Example Use Cases
-
-SEO Audit Suite Pro V5 can support workflows such as:
-
-### SEO Agency Audits
-
-Run structured audits for prospective and existing clients.
-
-### Freelance SEO Services
-
-Use evidence-backed findings to support SEO proposals and service recommendations.
-
-### Technical SEO Audits
-
-Investigate crawling, rendering, metadata, canonicalization, sitemap and robots issues.
-
-### JavaScript SEO
-
-Analyze websites where important content is rendered through JavaScript.
-
-### AI Search / AEO Analysis
-
-Evaluate answer-oriented content and structural signals as part of a broader modern SEO strategy.
-
-### Website Performance Analysis
-
-Review PageSpeed and Core Web Vitals metrics.
-
-### SEO Reporting
-
-Turn technical findings into client-oriented recommendations.
-
----
-
-# Scoring Disclaimer
-
-SEO Audit Suite Pro V5 uses **application-defined scoring logic**.
-
-The scores are intended to summarize audit evidence and prioritize optimization opportunities.
-
-They are:
-
-* Not official Google scores
-* Not Google ranking predictions
-* Not guarantees of ranking improvement
-* Not guarantees of AI-search visibility
-* Not a replacement for professional SEO judgment
-
-AEO Readiness is specifically a heuristic checklist and should not be interpreted as an official AI-search ranking measurement.
-
----
-
-# Roadmap
-
-Future development may include:
-
-* More advanced JavaScript crawling
-* Larger crawl limits
-* Crawl scheduling
-* Historical audit comparison
-* Automated SEO issue tracking
-* Enhanced entity and topical analysis
-* More advanced AI-search visibility analysis
-* SERP feature analysis
-* Competitor comparison
-* Content quality scoring
-* Advanced internal-link recommendations
-* Automated client report branding
-* Agency/team workflows
-
----
-
-# Project Status
-
-**SEO Audit Suite Pro V5 — Active Development**
-
-The current version includes a broad collection of technical SEO, on-page, performance, structured-data, image, internal-linking, AEO and search-performance analysis tools.
-
-The project is designed as a foundation for a professional SEO auditing and client-reporting platform rather than a simple SEO checker.
-
----
-
-# Author / Portfolio
-
-This project is part of an ongoing SEO tooling portfolio focused on building practical solutions for modern search optimization, technical SEO and the evolving AI-powered search landscape.
-
-If you are looking for professional SEO auditing, technical SEO analysis, website optimization or modern search visibility consulting, this project demonstrates the underlying technical capabilities of the workflow.
-
----
-
-## License
-
-This project is currently presented as a portfolio and development project.
-
-## V6 Phase 5 - Client Reporting
-
-The suite now includes a **Client Report & PDF** module that reuses the same browser-rendered V6 AI Search Audit and 30/60-day strategy evidence. It generates a professional client-facing PDF and portable HTML report containing an executive summary, scorecards, prioritized findings, recommended service actions, roadmap and methodology disclaimers.
-
-PDF export requires `reportlab`, included in `requirements.txt`.
-
-
-## V6 Final GUI & reporting polish
-
-The suite now uses a shared dark professional visual system across the dashboard and audit pages. The final dashboard groups the workflow into Traditional SEO, AI Search Intelligence, Authority & Trust, Competitive Intelligence, Strategy, and Client Deliverables. Client reports explicitly distinguish **AEO Intelligence 2.0** from the **Legacy AEO Checklist**, and 30/60-day roadmap items are labeled as **Strategy Priority** so they are not confused with audit-finding priority counts.
+git clone https://github.com/SEOAuditSuite/SEO-Audit-Suite.git
