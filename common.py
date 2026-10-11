@@ -1,4 +1,5 @@
 import json
+import base64
 import re
 from collections import Counter
 from dataclasses import dataclass, asdict, field
@@ -25,12 +26,14 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def fetch(url, timeout=REQUEST_TIMEOUT):
+def fetch(url, timeout=REQUEST_TIMEOUT, url_validator=None):
     # Validate each redirect before requesting it; cap decompressed body bytes.
     with requests.Session() as session:
         history = []
         for _ in range(11):
             validate_fetch_url(url)
+            if url_validator is not None:
+                url_validator(url)
             r = session.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False, stream=True)
             try:
                 if r.status_code in (301, 302, 303, 307, 308) and r.headers.get('Location'):
@@ -392,12 +395,17 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
 def page_to_dict(page): return asdict(page)
 
 
-def get_robots_sitemap(base):
+def get_robots_sitemap(base, url_validator=None):
     parsed = urlparse(normalize_url(base))
     base = f"{parsed.scheme}://{parsed.netloc}"; out = {"robots":None,"sitemap":None,"errors":[]}
     for key, path in (("robots","/robots.txt"),("sitemap","/sitemap.xml")):
         try:
-            r=fetch(base+path); out[key]={"status":r.status_code,"url":r.url,"text":r.text}
+            r = fetch(base + path, url_validator=url_validator) if url_validator is not None else fetch(base + path)
+            out[key] = {"status": r.status_code, "url": r.url, "text": r.text}
+            if key == 'sitemap' and url_validator is not None:
+                # Preserve original encoding/gzip bytes in JSON-safe optional evidence.
+                out[key]['content_base64'] = base64.b64encode(r.content).decode('ascii')
+                out[key]['redirect_chain'] = [{'url': h.url, 'status': h.status_code} for h in r.history]
         except Exception as exc: out["errors"].append((path,str(exc)))
     return out
 

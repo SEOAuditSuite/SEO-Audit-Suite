@@ -53,3 +53,61 @@ Added explicit grouped navigation for Overview and all 24 tools, an expanded ini
 and START-APP.bat. All registered pages were opened by the navigation regression test.
 Browser UI verification confirmed the menu on Overview and after selecting Client Workspace.
 Streamlit minimum is now 1.46 to support additive page configuration in the routed app.
+
+## Phase 2 development validation - 11 October 2026
+
+Baseline: `d33d9cb08b8778e973e93b307d2f509ab8ec4b0f`, confirmed against GitHub
+`main`. Work resumed in the recovered isolated `phase2-development` checkout.
+The older uploaded V6.1 ZIP was not used as the development baseline.
+
+- Full automated suite: **104 tests passed; 0 failures; 0 errors; 0 skips** on
+  Python 3.12.14. This includes 59 existing tests and 45 distinct Phase 2 tests.
+  Command: `python -m unittest discover -s tests -v`.
+- Parser/discovery tests cover namespace typing, index recursion/cycles,
+  duplicate provenance, gzip/UTF-16 bytes, DTD/entity rejection, malformed/deep XML,
+  URL validation, document/depth/page/root/child-queue/time limits, aggregate byte
+  admission, malformed-document budget consumption and cached redirect history.
+- Reconciliation tests cover occurrences vs unique referring pages, self-links,
+  redirect aliases/conflicts/cycles/failures, seed depth, www/cross-host boundaries,
+  incomplete/legacy/empty evidence, unavailable URLs and canonical review hints.
+- Controlled real HTTP tests confirm sitemap URLs do not seed navigation and
+  foreign document redirect destinations are stopped before being requested.
+- Streamlit AppTest covers both changed screens and Client Workspace opt-in exports.
+  Existing navigation and Phase 1 screen tests also pass. Deprecation warnings about
+  `use_container_width` remain non-failing existing UI compatibility warnings.
+- Compilation passed. Scoring functions, Phase 1 traversal/extraction/graph logic,
+  strategy and `requirements.txt` are unchanged.
+- Disabled-feature comparison against pinned baseline source confirmed identical
+  audit/model data and all nine default export byte streams. PDF metadata was
+  stabilized with ReportLab invariant mode only in the comparison harness.
+- Synthetic PDF/HTML/JSON/CSV files were generated from the final implementation.
+  The seven-page PDF was rendered using Poppler and visually inspected; HTML
+  escaping, candidate labels, unknown values and ten-example cap are tested.
+
+### Browser validation remains pending
+
+No local Chromium/Chrome executable was found. Playwright Chromium installation
+failed because the downloaded archive was truncated/invalid. Available cloud Chrome
+could not reach the isolated loopback HTTP server (`ERR_CONNECTION_REFUSED`), and
+its security policy rejected the synchronized report's `file:` URL. No workaround
+or policy bypass was attempted. Real Chrome viewport rendering, screenshot review
+and horizontal-overflow measurements were **not executed successfully**. Streamlit
+AppTest and HTML source assertions do not replace those checks.
+
+The review package includes an English browser verification script for a machine
+with installed Chrome. Final visual acceptance requires its actual results and
+review of desktop/mobile screenshots. Phase 1's earlier Windows/Chrome results do
+not constitute Phase 2 browser validation.
+
+### Remaining limitations
+
+Candidates are limited sample evidence, not proven orphans or indexing results.
+Sitemap and navigation coverage remain distinct; partial inventories can omit
+candidates. Cross-host/CDN sitemap documents are excluded. Legacy caches without
+raw bytes/history cannot prove original encoding or intermediate redirect scope.
+Elapsed deadlines are best effort and do not constrain the entire audit workflow.
+XML admission limits are not a process-wide memory/CPU quota. DNS rebinding,
+resolved-private-address exposure, proxy routing, comprehensive browser network
+isolation and public-hosting hardening are not fixed by this phase. Evidence URLs
+and content can contain sensitive data. No live client site, paid API, GSC URL
+reconciliation or production deployment was tested.

@@ -344,6 +344,20 @@ def build_client_report_pdf(model):
             block.append(Spacer(1, 4 * mm))
             story.append(KeepTogether(block))
 
+    sitemap = model.get('sitemap_diagnostics')
+    if sitemap is not None:
+        story.append(Paragraph("Sitemap-Based Candidate Review", styles["Section"]))
+        story.append(Paragraph(escape(sitemap['scope_note']), styles["Body2"]))
+        story.append(Paragraph(escape(_sitemap_summary(sitemap)), styles["Body2"]))
+        for warning in sitemap['sitemap']['warnings']:
+            story.append(Paragraph("<b>Coverage warning:</b> " + escape(warning), styles["Body2"]))
+        for row in _sitemap_examples(sitemap):
+            story.append(KeepTogether([
+                Paragraph(escape(row['Classification']), styles["FindingTitle"]),
+                Paragraph(escape(row['URL'][:300]) + (" [display shortened; see CSV]" if len(row['URL']) > 300 else ""), styles["Body2"]),
+                Paragraph(escape(f"Unique referring pages: {_sitemap_metric(row['Unique_referring_pages'])}; inspected: {row['Inspected']}; status: {row['Status'] or 'not verified'}"), styles["Small"]),
+                Spacer(1, 4 * mm)]))
+
     def roadmap_section(title, items):
         if not items:
             story.append(Paragraph(title, styles["Section"]))
@@ -392,6 +406,23 @@ def build_client_report_pdf(model):
     return buffer.getvalue()
 
 
+def _sitemap_metric(value):
+    return 'Not assessed' if value is None else str(value)
+
+
+def _sitemap_summary(result):
+    inventory = result['sitemap']
+    candidates = str(result['candidate_count']) if result['comparison_available'] else 'not assessed'
+    return (f"Sitemap URLs: {len(result['rows'])}; potential candidates: {candidates}; "
+            f"documents inspected: {len(inventory['documents'])}/{inventory['limits']['documents']}; "
+            f"sitemap discovery: {'completed within limits' if inventory['complete'] else 'incomplete'}; "
+            'up to 10 representative URLs below; full evidence is in the CSV exports.')
+
+
+def _sitemap_examples(result):
+    return sorted(result['rows'], key=lambda r: (not r['Classification'].startswith('Potential orphan'), r['URL']))[:10]
+
+
 def build_client_report_html(model):
     """Return a portable HTML client report for preview/download."""
     def score_cards():
@@ -400,6 +431,12 @@ def build_client_report_html(model):
             for name, score in model.get("scorecards", [])
         )
 
+    sitemap_section = ''
+    sitemap = model.get('sitemap_diagnostics')
+    if sitemap is not None:
+        examples = ''.join("<article class='finding'><h3>" + escape(r['Classification']) + "</h3><p>" + escape(r['URL']) + "</p><p>Unique referring pages: " + escape(_sitemap_metric(r['Unique_referring_pages'])) + "; inspected: " + str(r['Inspected']) + "; status: " + escape(str(r['Status'] or 'not verified')) + "</p></article>" for r in _sitemap_examples(sitemap))
+        warnings = ''.join('<p><b>Coverage warning:</b> ' + escape(w) + '</p>' for w in sitemap['sitemap']['warnings'])
+        sitemap_section = "<section class='card'><h2>Sitemap-Based Candidate Review</h2><p>" + escape(_sitemap_summary(sitemap)) + "</p><p>" + escape(sitemap['scope_note']) + "</p>" + warnings + examples + '</section>'
     page_evidence = "".join(
         "<article class='finding'><h3>" + escape(issue['ID'] + " - " + issue['Finding']) + "</h3>" +
         "".join("<p><b>" + label + ":</b> " + escape(str(issue[label])) + "</p>" for label in
@@ -456,7 +493,7 @@ small,.note{{color:#657083}} article,p,td{{overflow-wrap:anywhere}} @media(max-w
 <section class='card'><h2>Traditional SEO Scorecard <span class='muted'>(legacy checklist components)</span></h2><p class='note'>Legacy AEO Checklist is the older Complete Audit heuristic; AEO Intelligence 2.0 is the dedicated AI-search readiness model shown above.</p><table><thead><tr><th>Category</th><th>Score</th></tr></thead><tbody>{traditional_rows}</tbody></table></section>
 <section class='card'><h2>Model-Based Review Prompts</h2>{findings}</section>
 <section class='card'><h2>Page-Level Evidence & Acceptance Criteria</h2>{page_evidence or '<p>See the accompanying audit evidence.</p>'}</section>
-<section class='card'><h2>First 30 Days</h2>{roadmap(model.get('first_30_days', []))}</section>
+{sitemap_section}<section class='card'><h2>First 30 Days</h2>{roadmap(model.get('first_30_days', []))}</section>
 <section class='card'><h2>Days 31-60</h2>{roadmap(model.get('days_31_60', []))}</section>
 <section class='card'><h2>Scope & Methodology</h2><p>{escape(model.get('audit_disclaimer',''))}</p><p>{escape(model.get('strategy_disclaimer',''))}</p><small>Engine: {escape(model.get('engine',''))}</small></section>
 </main></body></html>"""
