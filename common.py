@@ -1,11 +1,12 @@
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from urllib.parse import urljoin, urlparse, urldefrag
 
 import requests
 from bs4 import BeautifulSoup
+from link_diagnostics import url_key, validate_fetch_url, classify_status, status_evidence, crawl_status_cache
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
@@ -21,11 +22,34 @@ def normalize_url(url: str) -> str:
         return ""
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    return url.rstrip("/")
+    return url
 
 
 def fetch(url, timeout=REQUEST_TIMEOUT):
-    return requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+    # Validate each redirect before requesting it; cap decompressed body bytes.
+    with requests.Session() as session:
+        history = []
+        for _ in range(11):
+            validate_fetch_url(url)
+            r = session.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False, stream=True)
+            try:
+                if r.status_code in (301, 302, 303, 307, 308) and r.headers.get('Location'):
+                    history.append(r)
+                    url = urljoin(r.url, r.headers['Location'])
+                    continue
+                chunks, size = [], 0
+                for chunk in r.iter_content(65536):
+                    size += len(chunk)
+                    if size > 5 * 1024 * 1024:
+                        raise ValueError('Response exceeds 5 MiB limit')
+                    chunks.append(chunk)
+                r._content = b''.join(chunks)
+                r._content_consumed = True
+                r.history = history
+                return r
+            finally:
+                r.close()
+        raise ValueError('Redirect limit exceeded')
 
 
 def parse_html(html):
@@ -37,8 +61,8 @@ def clean_text(text):
 
 
 def same_domain(base, candidate):
-    a = urlparse(base).netloc.lower().split(":")[0]
-    b = urlparse(candidate).netloc.lower().split(":")[0]
+    a = (urlparse(base).hostname or "").lower()
+    b = (urlparse(candidate).hostname or "").lower()
     return a == b
 
 
@@ -92,6 +116,9 @@ class PageAudit:
     response_ms: int = 0
     browser_rendered: bool = False
     error: str = ""
+    link_occurrences: list | None = None
+    redirect_chain: list = field(default_factory=list)
+    crawl_depth: int | None = None
 
 
 def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=False):
@@ -126,14 +153,21 @@ def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=Fa
             "height": img.get("height", ""),
         })
 
-    internal, external = [], []
+    internal, external, occurrences = [], [], []
     seen_links = set()
     for a in soup.find_all("a", href=True):
         href = a.get("href", "").strip()
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:", "data:")):
             continue
         dest = urldefrag(absolute_url(final_url, href))[0]
+        try:
+            if urlparse(dest).scheme.lower() not in ('http', 'https'):
+                continue
+            url_key(dest)  # retain private targets as evidence; fetching is separately guarded
+        except ValueError:
+            continue
         item = {"url": dest, "anchor": clean_text(a.get_text(" ", strip=True)) or "(empty anchor)"}
+        occurrences.append(dict(item, internal=same_domain(final_url, dest)))
         key = (dest, item["anchor"])
         if key in seen_links:
             continue
@@ -174,7 +208,7 @@ def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=Fa
         og=og, twitter=twitter, lists=len(soup.find_all(["ul", "ol"])),
         tables=len(soup.find_all("table")), forms=len(soup.find_all("form")),
         lang=(soup.html.get("lang", "") if soup.html else ""), noindex=noindex,
-        response_ms=response_ms, browser_rendered=browser_rendered,
+        response_ms=response_ms, browser_rendered=browser_rendered, link_occurrences=occurrences,
     )
 
 
@@ -204,11 +238,15 @@ def browser_available():
 def crawl_page_browser(page, url, timeout=30000):
     import time
     started = time.perf_counter()
+    validate_fetch_url(url)
     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
     try: page.wait_for_load_state("networkidle", timeout=8000)
     except Exception: pass
     page.wait_for_timeout(700)
+    validate_fetch_url(page.url)
     html = page.content()
+    if len(html.encode("utf-8")) > 5 * 1024 * 1024:
+        raise ValueError("Rendered HTML exceeds 5 MiB limit")
     status = response.status if response else 0
     final_url = page.url
     audit = _extract_page(parse_html(html), url, final_url, status,
@@ -222,6 +260,18 @@ def crawl_page_browser(page, url, timeout=30000):
         audit.images = rendered
     except Exception: pass
 
+    if response and url_key(response.url) == url_key(final_url):
+        previous = response.request.redirected_from
+        chain = []
+        while previous:
+            prior_response = previous.response()
+            if prior_response:
+                chain.append({'url': previous.url, 'status': prior_response.status})
+            previous = previous.redirected_from
+        audit.redirect_chain = list(reversed(chain))
+    elif response:
+        # Client-side navigation is not an observed HTTP redirect/status mapping.
+        audit.status = 0
     audit.aeo_question_answers = extract_aeo_question_answers_browser(page)
 
     return audit
@@ -233,55 +283,110 @@ def crawl_page_requests(url, timeout=REQUEST_TIMEOUT):
     response = fetch(url, timeout=timeout)
     audit = _extract_page(parse_html(response.text), url, response.url, response.status_code,
                           int((time.perf_counter() - started) * 1000), False)
+    audit.redirect_chain = [{"url": r.url, "status": r.status_code} for r in response.history]
     return audit
 
 
+def _guard_browser_route(route):
+    try:
+        validate_fetch_url(route.request.url)
+    except ValueError:
+        route.abort()
+    else:
+        route.continue_()
+
+
 def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
+    from collections import deque
     start_url = normalize_url(start_url)
-    results, errors, queue = [], [], [start_url]
-    queued = {canonical_url(start_url)}
-    browser_used, browser_error = False, ""
+    validate_fetch_url(start_url)
+    if not isinstance(limit, int) or not 1 <= limit <= 500:
+        raise ValueError('Page limit must be between 1 and 500')
+    results, errors, checks, out_of_scope = [], [], [], []
+    queue = deque([start_url])
+    depths = {url_key(start_url): 0}
+    inspected, attempted = set(), set()
+    skipped = 0
+    browser_used, browser_error = False, ''
+    crawl_origin = start_url
+    discovery_limit = limit * 8
+
+    def consume(loader):
+        nonlocal skipped, crawl_origin
+        while queue and len(results) < limit and len(attempted) < discovery_limit:
+            current = queue.popleft()
+            key = url_key(current)
+            if key in inspected or key in attempted:
+                continue
+            attempted.add(key)
+            try:
+                audit = loader(current)
+                audit.crawl_depth = depths[key]
+                checks.append(status_evidence(audit))
+                if audit.status >= 400 or audit.status < 200:
+                    errors.append((current, audit.status, 'HTTP error or unknown status'))
+                    continue
+                final = url_key(audit.final_url)
+                if key == url_key(start_url):
+                    crawl_origin = audit.final_url
+                if not same_domain(crawl_origin, audit.final_url):
+                    out_of_scope.append(dict(requested_url=current, final_url=audit.final_url,
+                                             status=audit.status, depth=depths[key]))
+                    continue  # status evidence retained; foreign page excluded from all page summaries
+                depths[final] = min(depths.get(final, depths[key]), depths[key])
+                if final in inspected:
+                    continue
+                inspected.add(final)
+                results.append(audit)
+                for item in audit.internal_links:
+                    dest = url_key(item['url'])
+                    if same_domain(crawl_origin, dest) and dest not in depths:
+                        if len(depths) >= discovery_limit:
+                            skipped += 1
+                            continue
+                        depths[dest] = depths[final] + 1
+                        queue.append(item['url'])
+            except Exception as exc:
+                # Avoid reflecting URLs/query strings or credentials from exceptions.
+                message = type(exc).__name__ + ': fetch failed or blocked; verify access and limits'
+                errors.append((current, 'Request error', message))
+                checks.append(dict(url=current, status=None, requested_status=None, final_url='',
+                                   redirect_hops=0, redirect_chain=[], classification='error', error=message))
 
     if prefer_browser:
         try:
             from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
-                browser = _launch_browser(p); browser_used = True
-                context = browser.new_context(user_agent=HEADERS["User-Agent"], viewport={"width":1440,"height":900}, ignore_https_errors=True)
-                page = context.new_page()
-                while queue and len(results) < limit:
-                    current = queue.pop(0)
-                    try:
-                        audit = crawl_page_browser(page, current, timeout=timeout)
-                        if audit.status >= 400:
-                            errors.append((current, audit.status, "HTTP error")); continue
-                        results.append(audit)
-                        for item in audit.internal_links:
-                            dest = canonical_url(item["url"])
-                            if same_domain(start_url, dest) and dest not in queued and len(queued) < limit * 8:
-                                queued.add(dest); queue.append(item["url"])
-                    except Exception as exc:
-                        errors.append((current, "Request error", str(exc)))
-                context.close(); browser.close()
+                browser = _launch_browser(p)
+                try:
+                    context = browser.new_context(user_agent=HEADERS['User-Agent'],
+                        viewport={'width': 1440, 'height': 900}, ignore_https_errors=True,
+                        service_workers='block')
+                    context.route('**/*', _guard_browser_route)
+                    page = context.new_page()
+                    browser_used = True
+                    consume(lambda u: crawl_page_browser(page, u, timeout=timeout))
+                finally:
+                    browser.close()
         except Exception as exc:
-            browser_error = str(exc)
-
+            browser_error = type(exc).__name__ + ': browser unavailable or interrupted'
     if not browser_used:
-        while queue and len(results) < limit:
-            current = queue.pop(0)
-            try:
-                audit = crawl_page_requests(current)
-                if audit.status >= 400:
-                    errors.append((current, audit.status, "HTTP error")); continue
-                results.append(audit)
-                for item in audit.internal_links:
-                    dest = canonical_url(item["url"])
-                    if same_domain(start_url, dest) and dest not in queued and len(queued) < limit * 8:
-                        queued.add(dest); queue.append(item["url"])
-            except Exception as exc:
-                errors.append((current, "Request error", str(exc)))
-
-    return {"pages": results, "errors": errors, "browser_used": browser_used, "browser_error": browser_error}
+        consume(lambda u: crawl_page_requests(u, timeout=min(timeout / 1000, REQUEST_TIMEOUT)))
+    remaining = [u for u in queue if url_key(u) not in inspected and url_key(u) not in attempted]
+    reason = ('browser_interrupted' if browser_used and browser_error else
+              'page_limit' if remaining and len(results) >= limit else
+              'attempt_limit' if remaining else
+              'discovery_limit' if skipped else
+              'queue_exhausted_with_errors' if errors else 'queue_exhausted')
+    coverage = dict(seed_url=start_url, audit_hostname=urlparse(crawl_origin).hostname.lower(),
+                    out_of_scope_redirects=out_of_scope,
+                    requested_limit=limit, pages_inspected=len(results),
+                    attempted_urls=len(attempted), discovery_limit=discovery_limit,
+                    discovered_depths=depths, remaining_queue=remaining,
+                    skipped_discoveries=skipped, stop_reason=reason,
+                    observed_graph_complete=reason == 'queue_exhausted', full_site_complete=False)
+    return dict(pages=results, errors=errors, browser_used=browser_used,
+                browser_error=browser_error, status_checks=checks, coverage=coverage)
 
 
 def page_to_dict(page): return asdict(page)
@@ -306,16 +411,34 @@ def parse_sitemap(text, base_url=""):
     return urls
 
 
-def check_urls(urls, timeout=10):
-    rows=[]
+def check_urls(urls, timeout=10, cached=None):
+    rows = []
+    cache = dict(cached or {})
+    seen = set()
     for raw in urls:
         try:
-            r=fetch(raw,timeout=timeout)
-            status=r.status_code
-            classification="working" if status < 400 else "review" if status in (400,401,403,405,406,429) else "broken"
-            rows.append({"url":raw,"status":status,"final_url":r.url,"redirect_hops":len(r.history),"classification":classification,"error":""})
+            validate_fetch_url(raw)
+            key = url_key(raw)
+            if key in seen:
+                continue
+            seen.add(key)
+            if key in cache:
+                rows.append(dict(cache[key], url=raw))
+                continue
+            r = fetch(raw, timeout=timeout)
+            chain = [{'url': h.url, 'status': h.status_code} for h in r.history]
+            row = dict(url=raw, status=r.status_code, final_url=r.url,
+                       requested_status=chain[0]['status'] if chain else r.status_code,
+                       redirect_hops=len(chain), redirect_chain=chain,
+                       classification=classify_status(r.status_code), error='')
+            rows.append(row)
+            cache[key] = row
+            cache.setdefault(url_key(r.url), dict(row, url=r.url, requested_status=r.status_code,
+                                                 redirect_hops=0, redirect_chain=[]))
         except Exception as exc:
-            rows.append({"url":raw,"status":"Error","final_url":"","redirect_hops":0,"classification":"error","error":str(exc)})
+            rows.append(dict(url=raw, status=None, requested_status=None, final_url='',
+                             redirect_hops=0, redirect_chain=[], classification='error',
+                             error=type(exc).__name__ + ': fetch failed or blocked; verify access and limits'))
     return rows
 
 
@@ -391,6 +514,7 @@ def audit_score(page=None, extra_passes=0, extra_reviews=0):
 def html_report(site,crawl,findings,scores=None):
     from html import escape
     from datetime import datetime
+    from link_diagnostics import coverage_note
 
     pages=crawl.get("pages",[])
     scores=scores or overall_scores(pages)
@@ -484,7 +608,7 @@ table{{border-collapse:collapse;width:100%;margin-top:12px;background:#fff}} th,
       <span><strong>Audit date:</strong> {audited_at}</span>
       <span><strong>Pages crawled:</strong> {page_count}</span>
       <span><strong>Crawl errors:</strong> {crawl_errors}</span>
-      <span><strong>Internal links:</strong> {internal_links}</span>
+      <span><strong>Deduplicated internal link entries:</strong> {internal_links}</span>
     </div>
   </section>
 
@@ -520,7 +644,9 @@ table{{border-collapse:collapse;width:100%;margin-top:12px;background:#fff}} th,
 
   <section class="card">
     <h2>Site Coverage</h2>
-    <p>Browser-rendered pages audited: <strong>{page_count}</strong>. Rendered image elements: <strong>{image_count}</strong>. Unique image URLs: <strong>{unique_imgs}</strong>. Pages with JSON-LD: <strong>{schema_pages}/{page_count}</strong>.</p>
+    <p>{escape(coverage_note(crawl))}</p>
+    <p>Mode: {'Browser-rendered' if crawl.get('browser_used') else 'HTTP HTML fallback'}. Pages audited: <strong>{page_count}</strong>. Image elements: <strong>{image_count}</strong>. Unique image URLs: <strong>{unique_imgs}</strong>. Pages with JSON-LD: <strong>{schema_pages}/{page_count}</strong>.</p>
+    <p>Link counts in this legacy summary are distinct destination/anchor pairs per page, not element occurrences or unique referring pages. Use Internal Links for those diagnostics. Zero observed inlinks does not prove an orphan.</p>
   </section>
 
   <section class="card">

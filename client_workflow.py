@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from html import escape
 
 from common import crawl_site, get_robots_sitemap, normalize_url
+from link_diagnostics import analyze_links
 from v6_strategy import build_ai_search_audit, build_30_60_day_strategy
 from v6_reporting import build_client_report_model, build_client_report_html, build_client_report_pdf
 
@@ -104,11 +105,29 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
     audit = build_ai_search_audit(url, crawl_limit, crawl=crawl, discovery=discovery)
     plan = build_30_60_day_strategy(audit)
     model = build_client_report_model(audit, plan, client_name, prepared_by)
-    model['scope_note'] = SCOPE
+    links = analyze_links(crawl)
+    model['scope_note'] = SCOPE + ' ' + links['coverage_note']
     model['render_mode'] = 'Browser-rendered' if crawl.get('browser_used') else 'HTTP HTML fallback'
     model['generated_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     model['executive_points'].insert(0, f"Sample: {len(pages)} pages; first-page AI checks: {pages[0].final_url}; mode: {model['render_mode']}.")
     issues = issue_log(pages, audit['raw']['crawler'], crawl.get('errors', []))
+    reported_targets = set()
+    for edge in links['edges']:
+        key = (edge['Source'], edge['Target'])
+        if key in reported_targets:
+            continue
+        reported_targets.add(key)
+        if edge['Classification'] == 'broken' or edge['Redirect hops']:
+            finding = 'Observed broken internal link' if edge['Classification'] == 'broken' else 'Observed internal redirect'
+            if edge.get('Redirect leaves audit scope'):
+                finding += ' leaving audit scope'
+            issues.append(dict(ID=f"SEO-{len(issues)+1:03d}", URL=edge['Source'], Priority='Review',
+                Finding=finding, Evidence=f"Target: {edge['Target']}; requested status: {edge['Requested status']}; final status: {edge['Status']}; final URL: {edge['Final URL']}",
+                Confidence='Observed in sample', Action='Review target intent; correct link or destination where appropriate.',
+                Owner='Developer', Acceptance='Source link and intended destination rechecked.', Status='Open'))
+    model['executive_points'].insert(1, 'Internal links: ' + str(sum(e['Occurrences'] or 0 for e in links['edges'])) +
+        (' observed occurrences.' if all(e['Occurrences'] is not None for e in links['edges']) else ' counted entries; exact occurrences unavailable in legacy data.') +
+        ' Unique referring pages exclude self-links; see link inventory and source-to-target CSV evidence. Zero observed inlinks is not proof of an orphan.')
     model['issue_log'] = issues
     inventory = [dict(URL=p.final_url, Status=p.status, Title=p.title, Description=p.description,
                       H1=' | '.join(p.h1), Words=p.word_count, Canonical=p.canonical,
@@ -122,6 +141,10 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
     evidence['crawl_errors'] = crawl.get('errors', [])
     evidence['browser_error'] = crawl.get('browser_error', '')
     evidence['discovery'] = discovery
+    evidence['diagnostics_version'] = 'phase1-internal-links-1'
+    evidence['crawl_coverage'] = crawl.get('coverage')
+    evidence['status_checks'] = crawl.get('status_checks', [])
+    evidence['internal_link_diagnostics'] = links
     handoff = f'''# SEO client handoff
 
 Use the seo-client-delivery skill with evidence.json, issue-log.csv and keyword-map.csv.
@@ -133,7 +156,7 @@ Business goal: {goal or 'Not supplied'}
 Target location: {location or 'Not supplied'}
 Collected: {model['generated_at']}
 
-{SCOPE}
+{model['scope_note']}
 
 Review the evidence before making recommendations. Build a prioritized action plan,
 keyword-to-page map and content briefs where the supplied data supports them.
@@ -154,6 +177,10 @@ def delivery_files(delivery, include_pdf=True):
         'keyword-map.csv': csv_bytes(delivery['keywords'], KEYWORD_COLUMNS),
         'ai-handoff.md': delivery['handoff'].encode('utf-8'),
     }
+    links = delivery['evidence'].get('internal_link_diagnostics')
+    if links is not None:
+        files['internal-link-evidence.csv'] = csv_bytes(links['edges'], ['Source', 'Source requested URL', 'Target', 'Anchor', 'Internal', 'Destination in audit scope', 'Redirect leaves audit scope', 'Occurrences', 'Requested status', 'Status', 'Final URL', 'Redirect hops', 'Classification', 'Error'])
+        files['internal-link-inventory.csv'] = csv_bytes(links['inventory'], ['URL', 'Observed link occurrences', 'Unique referring pages', 'Inspected', 'Observed seed-relative depth'])
     if include_pdf:
         files['client-report.pdf'] = build_client_report_pdf(delivery['model'])
     return files
