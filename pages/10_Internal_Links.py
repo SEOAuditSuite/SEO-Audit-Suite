@@ -1,23 +1,32 @@
 import streamlit as st
-
 from ui import apply_global_ui
-from collections import Counter, defaultdict
-from common import crawl_site, canonical_url
+from common import crawl_site
+from link_diagnostics import analyze_links
+from client_workflow import csv_bytes
+
 st.title("🔗 Internal Link & Anchor Text Auditor Pro")
-st.caption("Rendered internal links are classified by destination and anchor quality; query/utility URLs remain visible for review.")
-url=st.text_input("Website URL",placeholder="https://example.com")
-limit=st.slider("Pages to crawl",1,50,10)
-if st.button("Analyze",type="primary"):
-    crawl=crawl_site(url,limit=limit,prefer_browser=True); pages=crawl["pages"]
-    anchors=Counter(); dests=Counter(); incoming=Counter(); empty=0; source_rows=[]
-    crawled={canonical_url(p.final_url) for p in pages}
-    for p in pages:
-        for item in p.internal_links:
-            anchors[item["anchor"]]+=1; dest=canonical_url(item["url"]); dests[dest]+=1; incoming[dest]+=1; empty += item["anchor"]=="(empty anchor)"
-            source_rows.append({"Source":p.url,"Anchor":item["anchor"],"Destination":item["url"],"Utility/query":("?" in item["url"] or "/wp-login" in item["url"])})
-    orphan=[p.url for p in pages if incoming[canonical_url(p.final_url)]==0 and canonical_url(p.final_url)!=canonical_url(pages[0].final_url)]
-    c=st.columns(4); c[0].metric("Internal links",len(source_rows)); c[1].metric("Unique destinations",len(dests)); c[2].metric("Empty anchors",empty); c[3].metric("Possible orphans",len(orphan))
-    st.subheader("Anchor text"); st.dataframe([{"Anchor":k,"Count":v} for k,v in anchors.most_common(50)],use_container_width=True,hide_index=True)
-    st.subheader("Destination inventory"); st.dataframe([{"URL":k,"Incoming links":v,"Crawled":k in crawled} for k,v in dests.most_common(100)],use_container_width=True,hide_index=True)
-    if orphan: st.subheader("Possible orphan pages"); st.dataframe([{"URL":x} for x in orphan],use_container_width=True,hide_index=True)
-    st.subheader("Source → destination evidence"); st.dataframe(source_rows[:300],use_container_width=True,hide_index=True)
+st.caption("Observed links and distinct referring pages in a bounded crawl sample.")
+url = st.text_input("Website URL", placeholder="https://example.com")
+limit = st.slider("Pages to crawl", 1, 50, 10)
+if st.button("Analyze", type="primary"):
+    try:
+        crawl = crawl_site(url, limit=limit, prefer_browser=True)
+        report = analyze_links(crawl)
+        st.info(report['coverage_note'])
+        st.caption(report['definitions'])
+        if not crawl['pages']:
+            st.warning("No pages inspected. Review crawl errors below.")
+        cols = st.columns(3)
+        cols[0].metric("Observed internal link occurrences", sum(r['Occurrences'] or 0 for r in report['edges']))
+        cols[1].metric("Observed target URLs", len({r['Target'] for r in report['edges']}))
+        cols[2].metric("Inspected pages with no observed referring page (excluding seed)", len(report['no_observed_inlinks']))
+        st.subheader("Destination inventory")
+        st.dataframe(report['inventory'], use_container_width=True, hide_index=True)
+        st.subheader("Source → target evidence")
+        st.caption("Status uses existing crawl responses only. Unfetched targets remain 'not checked'.")
+        st.dataframe(report['edges'][:300], use_container_width=True, hide_index=True)
+        st.download_button("Download all link evidence", csv_bytes(report['edges']), 'internal-link-evidence.csv', 'text/csv')
+        if crawl['errors']:
+            st.write("Crawl errors", crawl['errors'])
+    except Exception as exc:
+        st.error(f"Could not inspect links: {type(exc).__name__}. Check URL, access and limits.")

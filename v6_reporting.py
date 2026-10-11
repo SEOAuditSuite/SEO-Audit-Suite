@@ -67,6 +67,7 @@ def _finding_library(signal):
 
 def build_client_report_model(audit, plan, client_name="", prepared_by="SEO Audit Suite Pro", report_title="SEO + AI Search Audit Report"):
     """Create a presentation-safe report model from an AI Search Audit and strategy."""
+    from link_diagnostics import coverage_note
     if not audit or audit.get("error"):
         raise ValueError("A valid AI Search Audit result is required.")
 
@@ -148,7 +149,7 @@ def build_client_report_model(audit, plan, client_name="", prepared_by="SEO Audi
         "domain": _domain(url),
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %z"),
         "render_mode": "Browser-rendered" if audit.get("browser_used") else "HTTP HTML fallback",
-        "scope_note": "Sampled audit. AEO, GEO, entity and crawler checks refer to the first successfully fetched page; other summaries use the crawl sample. Word counts are length proxies, not content quality. Rankings, AI citations and schema eligibility are not verified.",
+        "scope_note": "Sampled audit. AEO, GEO, entity and crawler checks refer to the first successfully fetched page; other summaries use the crawl sample. Word counts are length proxies, not content quality. Rankings, AI citations and schema eligibility are not verified. " + coverage_note(audit.get('crawl', {})),
         "readiness": audit.get("readiness", "Weak"),
         "ai_search_score": audit.get("score", 0),
         "pages_crawled": audit.get("pages_crawled", 0),
@@ -210,7 +211,7 @@ def build_client_report_pdf(model):
     styles.add(ParagraphStyle(
         name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold",
         fontSize=14, leading=18, textColor=colors.HexColor("#172033"),
-        spaceBefore=8, spaceAfter=8,
+        spaceBefore=8, spaceAfter=8, keepWithNext=True,
     ))
     styles.add(ParagraphStyle(
         name="Small", parent=styles["Normal"], fontSize=8.5, leading=12,
@@ -276,7 +277,7 @@ def build_client_report_pdf(model):
     story.append(Paragraph(
         f"The audited site achieved an <b>AI Search Audit Score of {model['ai_search_score']}/100</b> with <b>{escape(model['readiness'])}</b> readiness. "
         f"The crawl covered {model['pages_crawled']} page(s), with {model['schema_coverage']}% structured-data coverage, "
-        f"an average of {model['average_words']} extracted word tokens per page and {model['internal_destinations']} unique internal destinations.",
+        f"an average of {model['average_words']} extracted word tokens per page and {model['internal_destinations']} unique internal href targets (legacy count, before redirect resolution).",
         styles["Body2"],
     ))
     story.append(Spacer(1, 2 * mm))
@@ -344,8 +345,8 @@ def build_client_report_pdf(model):
             story.append(KeepTogether(block))
 
     def roadmap_section(title, items):
-        story.append(Paragraph(title, styles["Section"]))
         if not items:
+            story.append(Paragraph(title, styles["Section"]))
             story.append(Paragraph("No specific actions were generated for this period.", styles["Body2"]))
             return
         for idx, item in enumerate(items, start=1):
@@ -356,6 +357,8 @@ def build_client_report_pdf(model):
                 Paragraph(f"<b>Success signal:</b> {escape(item.get('success_signal',''))}", styles["Small"]),
                 Spacer(1, 4 * mm),
             ]
+            if idx == 1:
+                block.insert(0, Paragraph(title, styles["Section"]))
             story.append(KeepTogether(block))
 
     story.append(Spacer(1, 5 * mm))
@@ -443,6 +446,7 @@ table{{width:100%;border-collapse:collapse}} td,th{{padding:9px;border:1px solid
 .finding,.road{{border:1px solid #e0e5ec;border-radius:12px;padding:15px;margin:12px 0}} .pill{{font-size:11px;font-weight:700;border-radius:999px;padding:4px 8px;background:#eef2f7}}
 .pill.high{{background:#fde8e8;color:#9b1c1c}} .pill.medium{{background:#fff2d8;color:#845400}} .pill.opportunity{{background:#e8f5ea;color:#256b34}}
 small,.note{{color:#657083}} article,p,td{{overflow-wrap:anywhere}} @media(max-width:800px){{.scores{{grid-template-columns:repeat(2,1fr)}}}}
+@media print{{.finding,.road,.score,tr,section.card:last-child{{break-inside:avoid}} h2,h3{{break-after:avoid}}}}
 </style></head><body><main>
 <section class='hero'><h1>{escape(model['report_title'])}</h1><div class='muted'>Professional SEO + AI Search client report</div>
 <p><b>Website:</b> {escape(model['website'])}<br>{f"<b>Client:</b> {escape(model['client_name'])}<br>" if model.get('client_name') else ''}<b>Prepared by:</b> {escape(model['prepared_by'])}<br><b>Audit date:</b> {escape(model['generated_at'])}</p>
