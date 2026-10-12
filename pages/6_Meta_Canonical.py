@@ -5,6 +5,21 @@ from common import crawl_site
 st.title("🏷️ Meta, Canonical & Social Metadata")
 st.caption("Rendered metadata audit with practical checks for titles, descriptions, canonicals and social tags.")
 url=st.text_input("Website URL",placeholder="https://example.com")
+with st.expander("Optional raw HTML / rendered DOM comparison"):
+    from rendering_diagnostics import compare_url, NOTE
+    from common import normalize_url
+    st.caption(NOTE)
+    if st.button("Compare one page", key="rendering_compare"):
+        with st.spinner("Collecting a bounded comparison (up to 45 seconds)..."):
+            st.session_state['rendering_comparison'] = compare_url(normalize_url(url))
+    if 'rendering_comparison' in st.session_state:
+        result = st.session_state['rendering_comparison']
+        st.write(result['requested_url'])
+        st.info(result['status'])
+        for warning in result['warnings']:
+            st.warning(warning)
+        st.dataframe(result['rows'], use_container_width=True, hide_index=True)
+        st.json({k: result[k] for k in ('final_url', 'browser_url', 'network', 'limits')})
 if st.button("Audit",type="primary"):
     crawl=crawl_site(url,limit=1,prefer_browser=True)
     if not crawl["pages"]: st.error("Could not render the page."); st.stop()

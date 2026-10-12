@@ -1,5 +1,65 @@
 # Validation - V6.1 client delivery edition
 
+## Phase 3 development validation - 12 October 2026
+
+Baseline: `06545fe364c44f202d6ddd209016ba89a114bf8f` (verified GitHub main at checkout).
+Development is isolated and uncommitted. Existing published Phase 1/2 history is preserved.
+
+- **153 automated tests passed, zero failures/errors/skips** on Python 3.12.14: 104
+  existing tests and 49 new Phase 3 tests. New coverage includes metadata/headings,
+  duplicate link occurrences, ordering, base URLs and resource identity, robot directives,
+  text hashing beyond display excerpts, extraction/HTTP byte/request/deadline limits,
+  redirect scope, public-DNS preflight, fail-closed browser routes, process cancellation,
+  missing browser/raw evidence retention, pending/script-error warnings, UI state,
+  reporting and disabled compatibility. Mocked browser API tests are not real Chrome tests.
+- Controlled loopback HTTP tests verified redirect evidence and that cross-origin
+  targets were not requested. Only test fixtures bypass DNS preflight; production guards
+  remain enabled. No external client website was audited.
+- Baseline comparison confirmed byte-identical nine default exports when Phase 3 is
+  disabled; all twelve exports also match with Phase 2 enabled. PDF metadata was made
+  deterministic with ReportLab invariant mode for this comparison only.
+- Score/crawl extraction function ASTs match the baseline. `link_diagnostics.py`,
+  `sitemap_diagnostics.py`, `v6_strategy.py` and `requirements.txt` are unchanged.
+- Synthetic successful-comparison and unavailable-result HTML/PDF/CSV/JSON reports
+  generated. HTML structure/escaping and explicit failure labels were checked. The
+  successful sample PDF has six pages; new comparison content was inspected visually.
+  Poppler exhibited a local font-substitution spacing artifact; a secondary MuPDF render
+  of the unchanged PDF confirmed readable text and intact layout.
+
+### Browser blocker and remaining acceptance gate
+
+No installed Chrome/Chromium executable was found. The bundled Playwright Node executable
+could not execute in this environment; using the supported `PLAYWRIGHT_NODEJS_PATH`
+override allowed the installer to start, but Chromium downloads failed with an invalid
+or truncated ZIP. A direct installed-Chrome validation attempt reported **blocked,
+zero executed checks and zero passed checks**. This is not browser acceptance.
+
+`tests/browser_rendering_validation.py` prepares real-Chrome checks for all eight
+comparison fields, paired response provenance, asynchronous same-origin rendering,
+restricted requests, client navigation, script failures, DOM size rejection, a hanging
+renderer deadline and desktop/mobile report overflow. It saves six normal viewport
+screenshots. These checks and screenshots still require execution/review on Windows.
+The accompanying Windows package uses an isolated copy, Python 3.12 explicitly and
+verified source checksums; it does not touch an existing local project.
+
+### Remaining limitations
+
+This optional replay restricts resources and can differ from a normal authenticated
+visit. Same-origin restriction includes scheme and port, not only hostname. Redirected
+subresources, cross-origin CDNs/APIs, interactions, scrolling and shadow DOM are outside
+this scope. Observed removals under a restricted/failed render are not proof of website
+defects. Shared-response headers and selected meta directives do not establish actual
+indexability or replace robots.txt/GSC checks.
+
+DNS rebinding, a full browser/OS network sandbox, process-wide memory/CPU quotas and
+public hosting security remain unresolved. A rejecting response chunk can exceed the
+admitted-byte budget before rejection; the body is not retained. Sensitive URL query
+values and content remain possible in evidence exports. No scoring change, new runtime
+dependency, commit, push, PR, release or deployment is part of this development task.
+
+**Acceptance status: implementation and local regression/report checks complete;
+real Windows Chrome execution and visual screenshot review pending.**
+
 Date: 7 October 2026. Source: the V6 files in the supplied SEO-Audit-Suite.zip.
 
 ## Passed
@@ -111,3 +171,19 @@ resolved-private-address exposure, proxy routing, comprehensive browser network
 isolation and public-hosting hardening are not fixed by this phase. Evidence URLs
 and content can contain sensitive data. No live client site, paid API, GSC URL
 reconciliation or production deployment was tested.
+
+## Phase 3 Windows timeout correction (revision 2)
+
+The supplied Windows log ran 153 tests in 23.633 seconds: 152 passed and one
+Streamlit AppTest action exceeded its default 3-second timeout. The traceback
+points to the button rerun in
+`PhaseOneUITests.test_broken_link_screen_action_reuses_crawl`, not an assertion.
+Only that AppTest now uses `default_timeout=20`, consistent with existing UI tests.
+All mocks and assertions remain unchanged; application code was not changed for
+this correction. The exact slow Windows component was not profiled.
+
+After the correction, the affected test passed independently (1/1), and the full
+local Python 3.12 suite passed (153/153; zero failures, errors or skips). This
+supports a test timing issue; a corrected Windows run is still required to
+confirm resolution on that machine. Chrome checks and screenshot acceptance
+remain pending. The launcher still stops on any regression failure.

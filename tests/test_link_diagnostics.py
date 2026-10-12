@@ -239,7 +239,7 @@ class PhaseOneUITests(unittest.TestCase):
         fixture = crawl([page(links=[('/gone','Gone')])])
         fixture['status_checks'] = [dict(url=BASE+'/gone',status=404,requested_status=404,
             final_url=BASE+'/gone',redirect_hops=0,redirect_chain=[],classification='broken',error='')]
-        app = AppTest.from_file(str(root/'pages/1_Broken_Links.py')).run()
+        app = AppTest.from_file(str(root/'pages/1_Broken_Links.py'), default_timeout=20).run()
         app.text_input[0].set_value(BASE)
         with patch('common.crawl_site',return_value=fixture), patch('common.fetch') as fetch_mock:
             app.button[0].click().run()

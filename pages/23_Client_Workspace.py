@@ -18,6 +18,8 @@ with st.form("client_scope"):
     limit = st.slider("Maximum pages in this sample", 1, 15, 10)
     include_sitemaps = st.checkbox("Include bounded sitemap candidate review", value=False)
     sitemap_url = st.text_input("Optional explicit sitemap URL")
+    include_rendering = st.checkbox("Compare raw HTML and rendered DOM for the first inspected page", value=False)
+    st.caption("Optional constrained snapshot: same-origin resources only, no interactions; up to 45 additional seconds. Scores are unchanged.")
     keywords = st.file_uploader("Optional keyword map CSV", type=['csv'])
     submitted = st.form_submit_button("Build client evidence pack", type="primary")
 
@@ -29,7 +31,7 @@ if submitted:
             raise ValueError("Enter a valid HTTP or HTTPS website URL.")
         rows = parse_keyword_csv(keywords.getvalue()) if keywords else []
         with st.spinner("Collecting evidence and building client deliverables..."):
-            delivery = build_delivery(target, client, prepared, goal, location, limit, rows, include_sitemaps=include_sitemaps, sitemap_url=sitemap_url)
+            delivery = build_delivery(target, client, prepared, goal, location, limit, rows, include_sitemaps=include_sitemaps, sitemap_url=sitemap_url, include_rendering=include_rendering)
             files = delivery_files(delivery)
         st.session_state['client_delivery'] = delivery
         st.session_state['client_files'] = files
@@ -51,6 +53,13 @@ if 'client_delivery' in st.session_state:
         result = delivery['evidence']['sitemap_diagnostics']
         st.caption('Sitemap candidates have limited evidence; scores are unchanged.')
         for warning in result['sitemap']['warnings']:
+            st.warning(warning)
+        st.dataframe(result['rows'], use_container_width=True, hide_index=True)
+    if delivery['evidence'].get('rendering_diagnostics') is not None:
+        result = delivery['evidence']['rendering_diagnostics']
+        st.subheader("Raw HTML / Rendered DOM Comparison")
+        st.info(result['status'] + ': ' + result['scope_note'])
+        for warning in result['warnings']:
             st.warning(warning)
         st.dataframe(result['rows'], use_container_width=True, hide_index=True)
     st.dataframe(delivery['issues'], use_container_width=True, hide_index=True)
