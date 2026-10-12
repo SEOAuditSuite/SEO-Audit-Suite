@@ -9,6 +9,7 @@ from html import escape
 
 from common import crawl_site, get_robots_sitemap, normalize_url
 from link_diagnostics import analyze_links
+from sitemap_diagnostics import discover_sitemap_inventory, analyze_sitemap_candidates, sitemap_scope_validator, NOTE
 from v6_strategy import build_ai_search_audit, build_30_60_day_strategy
 from v6_reporting import build_client_report_model, build_client_report_html, build_client_report_pdf
 
@@ -95,13 +96,14 @@ def issue_log(pages, crawler, errors):
     return issues
 
 
-def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", location="", crawl_limit=10, keywords=None, crawl=None, discovery=None):
+def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", location="", crawl_limit=10, keywords=None, crawl=None, discovery=None, include_sitemaps=False, sitemap_url="", sitemap_inventory=None):
     url = normalize_url(url)
     crawl = crawl if crawl is not None else crawl_site(url, limit=crawl_limit, prefer_browser=True)
     pages = crawl.get('pages', [])
     if not pages:
         raise ValueError("No pages could be audited. Check the URL and access before promising a client report.")
-    discovery = discovery if discovery is not None else get_robots_sitemap(pages[0].final_url)
+    if discovery is None:
+        discovery = get_robots_sitemap(pages[0].final_url, url_validator=sitemap_scope_validator(pages[0].final_url)) if include_sitemaps else get_robots_sitemap(pages[0].final_url)
     audit = build_ai_search_audit(url, crawl_limit, crawl=crawl, discovery=discovery)
     plan = build_30_60_day_strategy(audit)
     model = build_client_report_model(audit, plan, client_name, prepared_by)
@@ -128,6 +130,19 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
     model['executive_points'].insert(1, 'Internal links: ' + str(sum(e['Occurrences'] or 0 for e in links['edges'])) +
         (' observed occurrences.' if all(e['Occurrences'] is not None for e in links['edges']) else ' counted entries; exact occurrences unavailable in legacy data.') +
         ' Unique referring pages exclude self-links; see link inventory and source-to-target CSV evidence. Zero observed inlinks is not proof of an orphan.')
+    sitemap_result = None
+    if include_sitemaps:
+        collected = sitemap_inventory if sitemap_inventory is not None else discover_sitemap_inventory(
+            pages[0].final_url, discovery=discovery, sitemap_url=sitemap_url,
+            audit_hostname=links['audit_hostname'])
+        sitemap_result = analyze_sitemap_candidates(crawl, collected, links=links)
+        model['sitemap_diagnostics'] = sitemap_result
+        model['scope_note'] += ' ' + NOTE
+        model['executive_points'].append(
+            f"Sitemap comparison: {len(sitemap_result['rows'])} inventoried URLs; "
+            + (f"{sitemap_result['candidate_count']} potential orphan candidates with limited evidence."
+               if sitemap_result['comparison_available'] else 'insufficient navigation evidence for candidate comparison.')
+            + ' See sitemap coverage warnings and CSV evidence; scores are unchanged.')
     model['issue_log'] = issues
     inventory = [dict(URL=p.final_url, Status=p.status, Title=p.title, Description=p.description,
                       H1=' | '.join(p.h1), Words=p.word_count, Canonical=p.canonical,
@@ -145,6 +160,8 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
     evidence['crawl_coverage'] = crawl.get('coverage')
     evidence['status_checks'] = crawl.get('status_checks', [])
     evidence['internal_link_diagnostics'] = links
+    if sitemap_result is not None:
+        evidence['sitemap_diagnostics'] = sitemap_result
     handoff = f'''# SEO client handoff
 
 Use the seo-client-delivery skill with evidence.json, issue-log.csv and keyword-map.csv.
@@ -181,6 +198,11 @@ def delivery_files(delivery, include_pdf=True):
     if links is not None:
         files['internal-link-evidence.csv'] = csv_bytes(links['edges'], ['Source', 'Source requested URL', 'Target', 'Anchor', 'Internal', 'Destination in audit scope', 'Redirect leaves audit scope', 'Occurrences', 'Requested status', 'Status', 'Final URL', 'Redirect hops', 'Classification', 'Error'])
         files['internal-link-inventory.csv'] = csv_bytes(links['inventory'], ['URL', 'Observed link occurrences', 'Unique referring pages', 'Inspected', 'Observed seed-relative depth'])
+    sitemap = delivery['evidence'].get('sitemap_diagnostics')
+    if sitemap is not None:
+        files['sitemap-candidate-evidence.csv'] = csv_bytes(sitemap['rows'], ['URL', 'Raw_URL', 'Sitemaps', 'Final_URL', 'Classification', 'Unique_referring_pages', 'Observed_link_occurrences', 'Inspected', 'Depth', 'Status', 'Canonical_hint', 'Canonical_review', 'Redirect_alias', 'Evidence'])
+        files['sitemap-documents.csv'] = csv_bytes(sitemap['sitemap']['documents'], ['URL', 'Final_URL', 'Depth', 'Status', 'Kind', 'Pages', 'Decoded_bytes', 'Redirect_evidence', 'Redirect_chain', 'Error'])
+        files['sitemap-exclusions.csv'] = csv_bytes(sitemap['sitemap']['excluded'], ['URL', 'Reason'])
     if include_pdf:
         files['client-report.pdf'] = build_client_report_pdf(delivery['model'])
     return files
