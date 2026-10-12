@@ -10,6 +10,7 @@ from html import escape
 from common import crawl_site, get_robots_sitemap, normalize_url
 from link_diagnostics import analyze_links
 from sitemap_diagnostics import discover_sitemap_inventory, analyze_sitemap_candidates, sitemap_scope_validator, NOTE
+from rendering_diagnostics import compare_url, NOTE as RENDERING_NOTE
 from v6_strategy import build_ai_search_audit, build_30_60_day_strategy
 from v6_reporting import build_client_report_model, build_client_report_html, build_client_report_pdf
 
@@ -96,7 +97,7 @@ def issue_log(pages, crawler, errors):
     return issues
 
 
-def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", location="", crawl_limit=10, keywords=None, crawl=None, discovery=None, include_sitemaps=False, sitemap_url="", sitemap_inventory=None):
+def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", location="", crawl_limit=10, keywords=None, crawl=None, discovery=None, include_sitemaps=False, sitemap_url="", sitemap_inventory=None, include_rendering=False, rendering_result=None):
     url = normalize_url(url)
     crawl = crawl if crawl is not None else crawl_site(url, limit=crawl_limit, prefer_browser=True)
     pages = crawl.get('pages', [])
@@ -143,6 +144,13 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
             + (f"{sitemap_result['candidate_count']} potential orphan candidates with limited evidence."
                if sitemap_result['comparison_available'] else 'insufficient navigation evidence for candidate comparison.')
             + ' See sitemap coverage warnings and CSV evidence; scores are unchanged.')
+    render_result = None
+    if include_rendering:
+        render_result = rendering_result if rendering_result is not None else compare_url(pages[0].final_url)
+        model['rendering_diagnostics'] = render_result
+        model['scope_note'] += ' ' + RENDERING_NOTE
+        model['executive_points'].append('Raw HTML / rendered DOM: ' + render_result['status'] +
+            '. Separate first-page snapshot; review resource restrictions and warnings before interpreting differences.')
     model['issue_log'] = issues
     inventory = [dict(URL=p.final_url, Status=p.status, Title=p.title, Description=p.description,
                       H1=' | '.join(p.h1), Words=p.word_count, Canonical=p.canonical,
@@ -162,6 +170,8 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
     evidence['internal_link_diagnostics'] = links
     if sitemap_result is not None:
         evidence['sitemap_diagnostics'] = sitemap_result
+    if render_result is not None:
+        evidence['rendering_diagnostics'] = render_result
     handoff = f'''# SEO client handoff
 
 Use the seo-client-delivery skill with evidence.json, issue-log.csv and keyword-map.csv.
@@ -203,6 +213,15 @@ def delivery_files(delivery, include_pdf=True):
         files['sitemap-candidate-evidence.csv'] = csv_bytes(sitemap['rows'], ['URL', 'Raw_URL', 'Sitemaps', 'Final_URL', 'Classification', 'Unique_referring_pages', 'Observed_link_occurrences', 'Inspected', 'Depth', 'Status', 'Canonical_hint', 'Canonical_review', 'Redirect_alias', 'Evidence'])
         files['sitemap-documents.csv'] = csv_bytes(sitemap['sitemap']['documents'], ['URL', 'Final_URL', 'Depth', 'Status', 'Kind', 'Pages', 'Decoded_bytes', 'Redirect_evidence', 'Redirect_chain', 'Error'])
         files['sitemap-exclusions.csv'] = csv_bytes(sitemap['sitemap']['excluded'], ['URL', 'Reason'])
+    rendering = delivery['evidence'].get('rendering_diagnostics')
+    if rendering is not None:
+        rows = [dict(URL=rendering['requested_url'], Status=rendering['status'], **r) for r in rendering['rows']]
+        if not rows:
+            rows = [dict(URL=rendering['requested_url'], Status=rendering['status'], Element='Comparison',
+                         Change='Not assessed', Raw='', Rendered='', Added='', Removed='')]
+        for row in rows:
+            row['Warnings'] = ' | '.join(rendering['warnings'])
+        files['rendering-comparison.csv'] = csv_bytes(rows, ['URL','Status','Element','Change','Raw','Rendered','Added','Removed','Warnings'])
     if include_pdf:
         files['client-report.pdf'] = build_client_report_pdf(delivery['model'])
     return files

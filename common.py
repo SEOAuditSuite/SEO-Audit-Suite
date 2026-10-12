@@ -215,14 +215,14 @@ def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=Fa
     )
 
 
-def _launch_browser(playwright):
+def _launch_browser(playwright, launch_args=None):
     errors = []
     try:
-        return playwright.chromium.launch(channel="chrome", headless=True)
+        return playwright.chromium.launch(channel="chrome", headless=True, **({'args': launch_args} if launch_args else {}))
     except Exception as exc:
         errors.append(f"installed Chrome: {exc}")
     try:
-        return playwright.chromium.launch(headless=True)
+        return playwright.chromium.launch(headless=True, **({'args': launch_args} if launch_args else {}))
     except Exception as exc:
         errors.append(f"Playwright Chromium: {exc}")
     raise RuntimeError("Browser launch failed. " + " | ".join(errors))

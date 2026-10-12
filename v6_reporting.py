@@ -358,6 +358,18 @@ def build_client_report_pdf(model):
                 Paragraph(escape(f"Unique referring pages: {_sitemap_metric(row['Unique_referring_pages'])}; inspected: {row['Inspected']}; status: {row['Status'] or 'not verified'}"), styles["Small"]),
                 Spacer(1, 4 * mm)]))
 
+    rendering = model.get('rendering_diagnostics')
+    if rendering is not None:
+        story.append(Paragraph("Raw HTML / Rendered DOM Comparison", styles["Section"]))
+        for line in _rendering_summary(rendering):
+            story.append(Paragraph(escape(line), styles["Body2"]))
+        for row in rendering['rows']:
+            story.append(KeepTogether([
+                Paragraph(escape(row['Element'] + ' - ' + row['Change']), styles["FindingTitle"]),
+                Paragraph(escape('Raw: ' + _rendering_preview(row['Raw'])), styles["Small"]),
+                Paragraph(escape('Rendered: ' + _rendering_preview(row['Rendered'])), styles["Small"]),
+                Spacer(1, 3 * mm)]))
+
     def roadmap_section(title, items):
         if not items:
             story.append(Paragraph(title, styles["Section"]))
@@ -423,6 +435,21 @@ def _sitemap_examples(result):
     return sorted(result['rows'], key=lambda r: (not r['Classification'].startswith('Potential orphan'), r['URL']))[:10]
 
 
+def _rendering_summary(result):
+    return [result['status'] + '; URL: ' + result['requested_url'][:300], result['scope_note'],
+            'Normalized DOM text uses main/role=main/article/body, not computed CSS visibility. '
+            'Summaries below are shortened; JSON and rendering-comparison.csv retain bounded evidence.',
+            *['Evidence warning: ' + warning for warning in result['warnings']]]
+
+
+def _rendering_preview(value):
+    import json
+    data = json.loads(value)
+    prefix = (str(data['characters']) + ' characters; ' if 'characters' in data else str(data['count']) + ' entries; ')
+    text = ' | '.join(data['values'])
+    return prefix + (text[:180] + ' [excerpt]' if len(text) > 180 else text or '(empty)')
+
+
 def build_client_report_html(model):
     """Return a portable HTML client report for preview/download."""
     def score_cards():
@@ -437,6 +464,14 @@ def build_client_report_html(model):
         examples = ''.join("<article class='finding'><h3>" + escape(r['Classification']) + "</h3><p>" + escape(r['URL']) + "</p><p>Unique referring pages: " + escape(_sitemap_metric(r['Unique_referring_pages'])) + "; inspected: " + str(r['Inspected']) + "; status: " + escape(str(r['Status'] or 'not verified')) + "</p></article>" for r in _sitemap_examples(sitemap))
         warnings = ''.join('<p><b>Coverage warning:</b> ' + escape(w) + '</p>' for w in sitemap['sitemap']['warnings'])
         sitemap_section = "<section class='card'><h2>Sitemap-Based Candidate Review</h2><p>" + escape(_sitemap_summary(sitemap)) + "</p><p>" + escape(sitemap['scope_note']) + "</p>" + warnings + examples + '</section>'
+    rendering_section = ''
+    rendering = model.get('rendering_diagnostics')
+    if rendering is not None:
+        summaries = ''.join('<p>' + escape(line) + '</p>' for line in _rendering_summary(rendering))
+        examples = ''.join("<article class='finding'><h3>" + escape(r['Element'] + ' - ' + r['Change']) +
+            '</h3><p><b>Raw:</b> ' + escape(_rendering_preview(r['Raw'])) +
+            '</p><p><b>Rendered:</b> ' + escape(_rendering_preview(r['Rendered'])) + '</p></article>' for r in rendering['rows'])
+        rendering_section = "<section class='card' id='rendering-comparison'><h2>Raw HTML / Rendered DOM Comparison</h2>" + summaries + examples + '</section>'
     page_evidence = "".join(
         "<article class='finding'><h3>" + escape(issue['ID'] + " - " + issue['Finding']) + "</h3>" +
         "".join("<p><b>" + label + ":</b> " + escape(str(issue[label])) + "</p>" for label in
@@ -493,7 +528,7 @@ small,.note{{color:#657083}} article,p,td{{overflow-wrap:anywhere}} @media(max-w
 <section class='card'><h2>Traditional SEO Scorecard <span class='muted'>(legacy checklist components)</span></h2><p class='note'>Legacy AEO Checklist is the older Complete Audit heuristic; AEO Intelligence 2.0 is the dedicated AI-search readiness model shown above.</p><table><thead><tr><th>Category</th><th>Score</th></tr></thead><tbody>{traditional_rows}</tbody></table></section>
 <section class='card'><h2>Model-Based Review Prompts</h2>{findings}</section>
 <section class='card'><h2>Page-Level Evidence & Acceptance Criteria</h2>{page_evidence or '<p>See the accompanying audit evidence.</p>'}</section>
-{sitemap_section}<section class='card'><h2>First 30 Days</h2>{roadmap(model.get('first_30_days', []))}</section>
+{sitemap_section}{rendering_section}<section class='card'><h2>First 30 Days</h2>{roadmap(model.get('first_30_days', []))}</section>
 <section class='card'><h2>Days 31-60</h2>{roadmap(model.get('days_31_60', []))}</section>
 <section class='card'><h2>Scope & Methodology</h2><p>{escape(model.get('audit_disclaimer',''))}</p><p>{escape(model.get('strategy_disclaimer',''))}</p><small>Engine: {escape(model.get('engine',''))}</small></section>
 </main></body></html>"""
