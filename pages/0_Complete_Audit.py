@@ -4,6 +4,16 @@ import streamlit as st
 from ui import apply_global_ui
 from common import crawl_site, get_robots_sitemap, overall_scores, html_report, parse_sitemap, check_urls, aeo_score
 
+def _discovery_detail(discovery, key):
+    response = discovery.get(key)
+    if response and response.get('status') is not None:
+        return f"HTTP {response['status']}"
+    path = '/robots.txt' if key == 'robots' else '/sitemap.xml'
+    if any(error[0] == path for error in discovery.get('errors', [])):
+        return "Unavailable — fetch failed or blocked; HTTP status unknown"
+    return "Unavailable — HTTP status unknown"
+
+
 st.title(f"🧾 Complete SEO Audit — {COMPLETE_AUDIT_VERSION}")
 st.caption("One shared browser crawl powers the dashboard, page table and scoring. Scores are SEO Audit Suite measurements — not Google ranking scores.")
 
@@ -81,10 +91,10 @@ if st.button("🚀 Run Professional Audit",type="primary"):
       (empty_anchors==0,"Empty anchor text",str(empty_anchors),
        "Empty anchors can reduce link context and may create accessibility or navigation concerns when they represent important links.",
        "Review empty-anchor instances and ensure important navigation or content links have meaningful accessible labels.","Technical SEO / Accessibility"),
-      (bool(rs.get('robots') and rs['robots']['status']==200),"robots.txt","HTTP 200" if rs.get('robots') else "Unavailable",
+      (bool(rs.get('robots') and rs['robots'].get('status')==200),"robots.txt",_discovery_detail(rs, 'robots'),
        "A reachable robots.txt file helps communicate crawl directives to search-engine crawlers.",
        "Review robots directives for accuracy, unintended blocks and alignment with the site's crawl strategy.","Technical SEO / Crawlability"),
-      (bool(rs.get('sitemap') and rs['sitemap']['status']==200),"sitemap.xml","HTTP 200" if rs.get('sitemap') else "Unavailable",
+      (bool(rs.get('sitemap') and rs['sitemap'].get('status')==200),"sitemap.xml",_discovery_detail(rs, 'sitemap'),
        "An accessible XML sitemap gives search engines a structured list of URLs the site wants discovered.",
        "Review sitemap coverage, freshness and consistency with the site's preferred canonical URLs.","Technical SEO / Indexation"),
     ]
