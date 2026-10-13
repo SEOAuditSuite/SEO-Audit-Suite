@@ -5,7 +5,8 @@ from collections import Counter
 from dataclasses import dataclass, asdict, field
 from urllib.parse import urljoin, urlparse, urldefrag
 
-import requests
+import time
+from safe_http import SafeSession, TransportError
 from bs4 import BeautifulSoup
 from link_diagnostics import url_key, validate_fetch_url, classify_status, status_evidence, crawl_status_cache
 
@@ -29,15 +30,19 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def fetch(url, timeout=REQUEST_TIMEOUT, url_validator=None):
+def fetch(url, timeout=REQUEST_TIMEOUT, url_validator=None, deadline=None):
     # Validate each redirect before requesting it; cap decompressed body bytes.
-    with requests.Session() as session:
+    deadline = min(deadline, time.monotonic()+60) if deadline is not None else time.monotonic()+60
+    with SafeSession() as session:
         history = []
         for _ in range(11):
-            validate_fetch_url(url)
-            if url_validator is not None:
-                url_validator(url)
-            r = session.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False, stream=True)
+            try:
+                validate_fetch_url(url)
+                if url_validator is not None:
+                    url_validator(url)
+            except ValueError:
+                raise TransportError('Request URL or redirect scope blocked') from None
+            r = session.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False, stream=True, deadline=deadline)
             try:
                 if r.status_code in (301, 302, 303, 307, 308) and r.headers.get('Location'):
                     history.append(r)

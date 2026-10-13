@@ -214,3 +214,40 @@ Audit HTML download intentionally changes its presentation and filename.
 The standalone Complete Audit Crawled Pages table is contained in a keyboard-focusable, labeled horizontal scroll region. All eight columns and values remain available. The page is not cropped or globally overflow-hidden. Existing scores, default Client Workspace exports and network restrictions are unchanged.
 
 The original Windows run verified 165 automated tests and 40 of 41 Chrome checks; mobile Complete Audit page overflow was the only failure. R2 adds one focused automated regression (166 total) and three Chrome checks (44 total), including reproduction of the original unwrapped table overflow and verification that the last column remains reachable. Four additional table screenshots bring the total to fourteen. R2 Windows acceptance remains pending until its own run succeeds and screenshots are reviewed.
+
+
+## Phase C1 — shared connection-bound HTTP transport (development)
+
+`safe_http.py` is used by common HTTP collectors (including crawl fallback,
+link checks and sitemaps) and Phase 3's controlled replay transport. Each hop
+resolves once, rejects the entire answer set if any destination is unsafe, and
+connects to an approved numeric address. HTTPS retains the original IDNA
+hostname for certificate checks, SNI and Host. Paths/query strings and existing
+redirect evidence remain intact. No proxy, netrc, Authorization, cookie jar or
+ambient credentials are inherited. Explicit credential-bearing URLs are blocked.
+
+Limits: at most four outstanding DNS workers, 32 approved addresses per lookup,
+60 seconds per common fetch including redirects, and 5 MiB each of encoded and
+decoded response bytes. Redirect bodies are not downloaded. Phase 3 retains its
+stricter 20-second network, 40-request, 2-MiB resource and 5-MiB session limits;
+failed transfers conservatively consume their reserved session byte allocation.
+Sitemap fetches also share the inventory's existing elapsed-time deadline.
+Unsupported compression, blocked destinations and request failures remain
+unknown/unavailable, never synthetic HTTP errors or proof of broken links.
+
+Compatibility boundaries: anonymous HTTP GET only; gzip/identity responses;
+normal public DNS destinations only. Private/intranet audits, mixed public/private
+DNS, proxy-only networks, cookie-dependent redirects and unsupported encodings
+may now yield unavailable evidence. The system/default Python TLS CA store is
+used; certificate verification is never disabled. Requirements, scoring formulas,
+nine default exports, and existing UI/report presentation are unchanged.
+
+This is **not complete SSRF protection or public deployment readiness**. The
+normal Playwright crawler, its subresources, WebSockets and browser-internal
+traffic are not connection-bound by this patch. The fixed Google PageSpeed API
+client is unchanged. C2 must cover browser egress; C3 must provide OS/network
+isolation, process-tree cleanup and CPU/RAM limits. An OS DNS lookup can outlive
+its caller's deadline, although only four daemon resolver workers can remain
+outstanding. Existing Phase 3 replay CSP and same-origin restrictions remain;
+JavaScript-heavy sites may still produce incomplete evidence. No deployment is
+authorized by these changes.

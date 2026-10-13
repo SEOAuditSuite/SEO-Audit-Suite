@@ -220,3 +220,39 @@ there are no process-tree CPU/RAM quotas. No public deployment is approved.
 The standalone Complete Audit Crawled Pages table is contained in a keyboard-focusable, labeled horizontal scroll region. All eight columns and values remain available. The page is not cropped or globally overflow-hidden. Existing scores, default Client Workspace exports and network restrictions are unchanged.
 
 The original Windows run verified 165 automated tests and 40 of 41 Chrome checks; mobile Complete Audit page overflow was the only failure. R2 adds one focused automated regression (166 total) and three Chrome checks (44 total), including reproduction of the original unwrapped table overflow and verification that the last column remains reachable. Four additional table screenshots bring the total to fourteen. R2 Windows acceptance remains pending until its own run succeeds and screenshots are reviewed.
+
+
+## Phase C1 — local validation (2026-10-13)
+
+Baseline: `9a4516440bd8c9ddddf0b0394b243bc097e56fa5`, detached isolated
+`phase-c1-development` workspace. No commit, push or deployment performed.
+
+- Full suite: **190 passed, 0 failures, 0 errors, 0 skips** under Python 3.12.
+  This comprises 166 baseline tests and 24 C1 security tests. Controlled tests
+  cover numeric-IP connection binding, mixed/private IPv4/IPv6 answers,
+  ambiguous/IDNA encodings, redirects, TLS SNI/hostname/untrusted certificates,
+  credential/proxy inheritance, gzip/decoded/wire/session byte limits, partial
+  responses, DNS/slow-header/slow-body deadlines and blocked-as-unknown evidence.
+- Real HTTP/TLS fixture tests run locally. Loopback access is allowed only by
+  scoped test mocks; there is no production bypass or insecure TLS option.
+- Compatibility harness: all nine default exports and twelve Phase-2-enabled
+  exports byte-identical to the baseline, with timestamp/PDF metadata fixed
+  only inside the harness. Scoring and crawler ASTs unchanged; requirements,
+  Phase 1 identity/graph module, Phase 3 replay policy and comparison unchanged.
+- Real Chrome bridge attempted: **blocked, zero checks executed**. Installed
+  Chrome is absent in this environment. No Windows or browser acceptance is
+  claimed. Windows Python 3.12 package must run the 190-test suite, 44 existing
+  Chrome checks plus 5 C1 bridge checks, then review fourteen screenshots.
+- The package contains exact source/patch hashes and separate local test logs;
+  unexecuted or failed checks cannot become passed results.
+
+C1 limits apply only to shared HTTP collectors and Phase 3's HTTP replay bridge.
+Normal browser traffic and the fixed Google PageSpeed client are unchanged.
+DNS workers may outlive deadlines (bounded to four); OS scheduling is not a
+hard real-time guarantee. Failed replay requests reserve their full per-request
+byte allowance conservatively; reported decoded bytes remain successfully
+collected evidence, not network accounting. System TLS CA trust, anonymous GET,
+gzip/identity-only and no cookie/proxy inheritance can reduce site compatibility.
+C2 browser egress and C3 process/network/resource containment remain necessary
+before any client-facing public deployment. Earlier historical Windows results
+in this document do not constitute C1 verification.

@@ -111,7 +111,7 @@ class ControlledSitemapHTTPTests(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import Mock
         response=Mock(status_code=302,url=BASE+'/map',headers={'Location':'https://other.test/intermediate'})
-        with patch('common.requests.Session') as session:
+        with patch('common.SafeSession') as session:
             session.return_value.__enter__.return_value.get.return_value=response
             with self.assertRaises(ValueError):fetch(BASE+'/map',url_validator=__import__('sitemap_diagnostics').sitemap_scope_validator(BASE))
             self.assertEqual(session.return_value.__enter__.return_value.get.call_count,1)
