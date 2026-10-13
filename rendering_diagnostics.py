@@ -13,7 +13,7 @@ import sys
 import time
 from urllib.parse import urljoin, urlsplit
 
-import requests
+from safe_http import SafeSession, resolve_addresses
 from bs4 import BeautifulSoup
 from common import HEADERS, _launch_browser, clean_text, parse_html
 from link_diagnostics import url_key, validate_fetch_url
@@ -44,11 +44,9 @@ def scoped_url(url, scope):
 
 
 def public_dns(url):
-    """Preflight all resolved addresses; does not pin DNS against rebinding."""
+    """Compatibility helper for DNS policy tests; SafeSession pins actual connections."""
     p = urlsplit(url)
-    addresses = socket.getaddrinfo(p.hostname, p.port or (443 if p.scheme == 'https' else 80), type=socket.SOCK_STREAM)
-    if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
-        raise ValueError('Non-public DNS address blocked')
+    return resolve_addresses(p.hostname, p.port or (443 if p.scheme == 'https' else 80), time.monotonic()+5)
 
 
 class BoundedTransport:
@@ -58,7 +56,7 @@ class BoundedTransport:
         self.scope = origin(url)
         self.started = time.monotonic()
         self.requests = self.bytes = 0
-        self.session = requests.Session()
+        self.session = SafeSession(max_total_bytes=LIMITS['total_bytes'])
         self.session.trust_env = False  # no inherited proxy/netrc credentials
 
     def close(self):
@@ -71,11 +69,10 @@ class BoundedTransport:
             remaining = LIMITS['network_seconds'] - (time.monotonic() - self.started)
             if remaining <= 0 or self.requests >= LIMITS['requests'] or self.bytes >= LIMITS['total_bytes']:
                 raise ValueError('Request, byte or network time budget exhausted')
-            public_dns(url)
             self.requests += 1
-            self.session.cookies.clear()
             with self.session.get(url, headers=HEADERS, allow_redirects=False, stream=True,
-                                  timeout=min(5, remaining)) as response:
+                                  timeout=min(5, remaining), deadline=self.started + LIMITS['network_seconds'],
+                                  max_bytes=min(LIMITS['resource_bytes'], LIMITS['total_bytes']-self.bytes)) as response:
                 headers = {k.lower(): v for k, v in response.headers.items()}
                 if response.status_code in (301, 302, 303, 307, 308) and headers.get('location'):
                     chain.append(dict(url=url, status=response.status_code))

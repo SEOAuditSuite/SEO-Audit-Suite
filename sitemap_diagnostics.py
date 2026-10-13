@@ -154,7 +154,9 @@ def discover_sitemap_inventory(base, discovery=None, sitemap_url='', limits=None
                            if 'content_base64' in cached else cached.get('text', ''))
                 status = cached['status']
             else:
-                response = (fetcher or fetch)(raw, timeout=limits['timeout'], url_validator=guard)
+                response = (fetcher(raw, timeout=limits['timeout'], url_validator=guard) if fetcher else
+                            fetch(raw, timeout=limits['timeout'], url_validator=guard,
+                                  deadline=start + limits['seconds']))
                 final, content, status = response.url, response.content, response.status_code
                 guard(final)
                 doc['Redirect_chain'] = [{'url': h.url, 'status': h.status_code} for h in getattr(response, 'history', [])]

@@ -183,7 +183,7 @@ class FetchGuardTests(unittest.TestCase):
 
     def test_redirect_to_private_is_not_requested(self):
         response = Mock(status_code=302, url=BASE, headers={'Location':'http://127.0.0.1/private'})
-        with patch('common.requests.Session.get',return_value=response) as get:
+        with patch('common.SafeSession.get',return_value=response) as get:
             with self.assertRaises(ValueError): fetch(BASE)
         self.assertEqual(get.call_count, 1)
         self.assertFalse(get.call_args.kwargs['allow_redirects'])
@@ -192,7 +192,7 @@ class FetchGuardTests(unittest.TestCase):
     def test_response_limit_and_close(self):
         response = Mock(status_code=200, url=BASE, headers={})
         response.iter_content.return_value = [b'x' * (5 * 1024 * 1024 + 1)]
-        with patch('common.requests.Session.get',return_value=response):
+        with patch('common.SafeSession.get',return_value=response):
             with self.assertRaises(ValueError): fetch(BASE)
         response.close.assert_called_once()
 
@@ -200,7 +200,7 @@ class FetchGuardTests(unittest.TestCase):
         a = Mock(status_code=301, url=BASE+'/old', headers={'Location':'/new'})
         b = Mock(status_code=200, url=BASE+'/new', headers={})
         b.iter_content.return_value = [b'hello']
-        with patch('common.requests.Session.get',side_effect=[a,b]): result = fetch(BASE+'/old')
+        with patch('common.SafeSession.get',side_effect=[a,b]): result = fetch(BASE+'/old')
         self.assertEqual(result.history,[a])
         self.assertEqual(result._content,b'hello')
 

@@ -64,11 +64,12 @@ class ControlledSite:
             return original(host,*args,**kwargs)
         self.dns=patch('socket.getaddrinfo',side_effect=resolve)
         self.env=patch.dict(os.environ,{'NO_PROXY':'*','no_proxy':'*'})
-        self.dns.start(); self.env.start()
+        self.public = patch('safe_http._public_address', side_effect=lambda value: value == '127.0.0.1')
+        self.public.start(); self.dns.start(); self.env.start()
         return self
 
     def __exit__(self,*args):
-        self.dns.stop(); self.env.stop()
+        self.public.stop(); self.dns.stop(); self.env.stop()
         self.server.shutdown(); self.server.server_close(); self.thread.join()
 
     def run(self,limit=10):

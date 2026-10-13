@@ -113,7 +113,7 @@ class TransportTests(unittest.TestCase):
     def test_redirect_each_hop_and_identity(self):
         t = self.transport(); t.session.get.side_effect = [self.response(302, headers={'Location':'/final/'}), self.response(url=BASE+'final/')]
         with patch.object(rd, 'public_dns') as dns: r = t.get(BASE)
-        self.assertEqual(r['url'], BASE+'final/'); self.assertEqual(len(r['redirects']), 1); self.assertEqual(dns.call_count, 2)
+        self.assertEqual(r['url'], BASE+'final/'); self.assertEqual(len(r['redirects']), 1); self.assertEqual(dns.call_count, 0); self.assertEqual(t.session.get.call_count, 2)
         self.assertFalse(t.session.get.call_args.kwargs['allow_redirects'])
 
     def test_cross_host_redirect_stopped_before_second_request(self):
