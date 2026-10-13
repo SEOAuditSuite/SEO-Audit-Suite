@@ -18,7 +18,8 @@ with st.expander("Optional raw HTML / rendered DOM comparison"):
         st.info(result['status'])
         for warning in result['warnings']:
             st.warning(warning)
-        st.dataframe(result['rows'], use_container_width=True, hide_index=True)
+        from comparison_view import show_comparison
+        show_comparison(result)
         st.json({k: result[k] for k in ('final_url', 'browser_url', 'network', 'limits')})
 if st.button("Audit",type="primary"):
     crawl=crawl_site(url,limit=1,prefer_browser=True)

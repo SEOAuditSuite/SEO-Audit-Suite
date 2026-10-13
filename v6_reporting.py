@@ -443,11 +443,9 @@ def _rendering_summary(result):
 
 
 def _rendering_preview(value):
-    import json
-    data = json.loads(value)
-    prefix = (str(data['characters']) + ' characters; ' if 'characters' in data else str(data['count']) + ' entries; ')
-    text = ' | '.join(data['values'])
-    return prefix + (text[:180] + ' [excerpt]' if len(text) > 180 else text or '(empty)')
+    from comparison_view import readable_value
+    text = readable_value(value).replace('\n', ' | ')
+    return text[:300] + ' [excerpt]' if len(text) > 300 else text
 
 
 def build_client_report_html(model):

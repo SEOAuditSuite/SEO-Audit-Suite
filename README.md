@@ -188,3 +188,29 @@ before sharing. Rejected credential-bearing sitemap URLs are redacted. Cross-hos
 sitemap documents are excluded, so legitimate CDN-hosted sitemaps need separate
 review. Google Search Console inventory reconciliation is a future enhancement;
 the existing GSC screen is unchanged.
+
+## V6.1.1 Phase A stabilization (development)
+
+Complete Audit and its standalone HTML download now use the V6.1.1 development
+label. Crawl-wide image elements/unique URLs are explicitly separate from
+first-page non-empty ALT coverage. Counts include repeated/hidden elements;
+non-empty ALT is not proof of descriptive quality, and decorative empty ALT may
+be appropriate. Image SEO identifies the first page and actual fallback mode.
+
+Phase 3 tables show readable before/after values and link evidence. The original
+structured rows remain available in an expander and evidence exports. Optional
+client HTML/PDF comparison summaries use the same readable values. Head-only
+HTML retains title/metadata but no longer treats it as main textual content.
+
+This is not a release or security-hardening milestone. Startup/autofill changes,
+DNS pinning, browser egress isolation and CPU/RAM quotas are outside Phase A.
+Existing scoring, network restrictions, serialized version identifiers and all
+nine default Client Workspace exports are preserved. The separate Complete
+Audit HTML download intentionally changes its presentation and filename.
+
+
+## Phase A R2 — mobile Complete Audit table containment
+
+The standalone Complete Audit Crawled Pages table is contained in a keyboard-focusable, labeled horizontal scroll region. All eight columns and values remain available. The page is not cropped or globally overflow-hidden. Existing scores, default Client Workspace exports and network restrictions are unchanged.
+
+The original Windows run verified 165 automated tests and 40 of 41 Chrome checks; mobile Complete Audit page overflow was the only failure. R2 adds one focused automated regression (166 total) and three Chrome checks (44 total), including reproduction of the original unwrapped table overflow and verification that the last column remains reachable. Four additional table screenshots bring the total to fourteen. R2 Windows acceptance remains pending until its own run succeeds and screenshots are reviewed.

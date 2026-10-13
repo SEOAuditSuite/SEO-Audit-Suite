@@ -187,3 +187,36 @@ local Python 3.12 suite passed (153/153; zero failures, errors or skips). This
 supports a test timing issue; a corrected Windows run is still required to
 confirm resolution on that machine. Chrome checks and screenshot acceptance
 remain pending. The launcher still stops on any regression failure.
+
+## V6.1.1 Phase A local validation — 12 October 2026
+
+Baseline: `835227b06c781304b2b2955657c07fc5444e72a2`. Work is isolated and
+uncommitted. This section supersedes no historical run; earlier Phase 3 Windows
+153/153 automated and 28/28 Chrome results apply to the earlier R2 patch only.
+
+- Current automated suite: **165 passed, 0 failures, 0 errors, 0 skips**
+  (153 existing plus 12 focused Phase A regressions).
+- Nine default export streams and all twelve Phase-2-enabled/Phase-3-disabled
+  export streams are byte-identical to this baseline in the controlled harness.
+  Timestamp/PDF metadata are fixed only in that harness. Scoring/crawl function
+  ASTs, Phase 1/2 core modules, dependencies and Phase 3 network policy match.
+- Controlled HTML/PDF samples generated. The updated five-page client PDF's
+  comparison page was visually inspected: readable links/text, no observed
+  clipping or overlapping values. AppTest verified both comparison screens.
+- Installed Chrome launch attempted locally: **blocked, 0 checks executed**,
+  executable `/opt/google/chrome/chrome` absent. No Windows verification is
+  claimed. Windows launcher/PowerShell execution is pending.
+- The Windows package retains the original 28 Chrome checks and adds 13 Phase A
+  checks (41 expected), generating ten desktop/mobile viewport screenshots.
+  All results and visual acceptance must be obtained from an actual new run.
+
+Known limitations remain: same-origin constrained replay can produce thin DOM
+snapshots; DNS rebinding and OS-level browser egress isolation are unresolved;
+there are no process-tree CPU/RAM quotas. No public deployment is approved.
+
+
+## Phase A R2 — mobile Complete Audit table containment
+
+The standalone Complete Audit Crawled Pages table is contained in a keyboard-focusable, labeled horizontal scroll region. All eight columns and values remain available. The page is not cropped or globally overflow-hidden. Existing scores, default Client Workspace exports and network restrictions are unchanged.
+
+The original Windows run verified 165 automated tests and 40 of 41 Chrome checks; mobile Complete Audit page overflow was the only failure. R2 adds one focused automated regression (166 total) and three Chrome checks (44 total), including reproduction of the original unwrapped table overflow and verification that the last column remains reachable. Four additional table screenshots bring the total to fourteen. R2 Windows acceptance remains pending until its own run succeeds and screenshots are reviewed.
