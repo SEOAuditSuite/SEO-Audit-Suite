@@ -1,10 +1,10 @@
-from common import has_parsed_schema
+from common import has_parsed_schema, COMPLETE_AUDIT_VERSION
 import streamlit as st
 
 from ui import apply_global_ui
 from common import crawl_site, get_robots_sitemap, overall_scores, html_report, parse_sitemap, check_urls, aeo_score
 
-st.title("🧾 Complete SEO Audit Pro V5")
+st.title(f"🧾 Complete SEO Audit — {COMPLETE_AUDIT_VERSION}")
 st.caption("One shared browser crawl powers the dashboard, page table and scoring. Scores are SEO Audit Suite measurements — not Google ranking scores.")
 
 url=st.text_input("Website URL",placeholder="https://example.com")
@@ -43,7 +43,8 @@ if st.button("🚀 Run Professional Audit",type="primary"):
     if crawl["browser_used"]: st.success("Browser rendering active — JavaScript-rendered DOM was audited.")
     else: st.warning("Browser rendering was unavailable; HTML fallback was used.")
 
-    st.subheader("🔎 Site-wide findings")
+    st.subheader("🔎 First-page checks and crawl-wide observations")
+    st.caption(f"Metadata, headings, text and ALT checks refer to the first inspected page: {pages[0].final_url}. Aggregate checks state their crawl-wide scope.")
     findings=[]
     p=pages[0]
     checks=[
@@ -62,7 +63,7 @@ if st.button("🚀 Run Professional Audit",type="primary"):
       (p.word_count>=300,"Content depth",f"Approx. {p.word_count} words",
        "Content should adequately address the page's purpose and search intent; word count alone is not a quality score.",
        "Review search intent, topical coverage and usefulness rather than targeting a fixed word count.","Content SEO / On-Page SEO"),
-      (not p.images or all(bool(i.get('alt','').strip()) for i in p.images),"Image ALT coverage",f"{sum(bool(i.get('alt','').strip()) for i in p.images)}/{len(p.images)}",
+      (not p.images or all(bool(i.get('alt','').strip()) for i in p.images),"Image ALT coverage",f"{sum(bool(i.get('alt','').strip()) for i in p.images)}/{len(p.images)} first-page image elements with non-empty ALT" if p.images else "N/A — no first-page image elements",
        "Descriptive ALT text improves accessibility and gives search engines useful context for informative images.",
        "Review image ALT text and add concise, descriptive text to informative images where appropriate.","Image SEO / Accessibility"),
       (has_parsed_schema(p),"Homepage structured data",f"{', '.join(p.schema_types) or 'No JSON-LD on first page'}",
@@ -148,7 +149,8 @@ if st.button("🚀 Run Professional Audit",type="primary"):
     st.write(f"**{empty_anchors}** empty-anchor instances detected. Utility/query URLs are kept visible rather than silently treated as content links.")
 
     st.subheader("🖼️ Image coverage")
-    st.write(f"Rendered image elements: **{sum(len(p.images) for p in pages)}** · unique image URLs: **{unique_imgs}**")
+    st.write(f"Crawl-wide image elements: **{sum(len(p.images) for p in pages)}** · crawl-wide unique image URLs: **{unique_imgs}** · pages inspected: **{len(pages)}**")
+    st.caption("Counts include repeated and hidden DOM image elements, not verified visible or successfully loaded images. ALT coverage above concerns only the first inspected page; empty ALT can be appropriate for decorative images.")
 
     st.subheader("📄 Crawled pages")
     st.dataframe([{"URL":p.url,"Status":p.status,"Words":p.word_count,"H1":len(p.h1),"H2":len(p.h2),"Images":len(p.images),"Internal links":len(p.internal_links),"Schema":", ".join(p.schema_types) or "None"} for p in pages],use_container_width=True,hide_index=True)
@@ -156,4 +158,4 @@ if st.button("🚀 Run Professional Audit",type="primary"):
         st.subheader("🚨 Crawl errors"); st.dataframe([{"URL":u,"Status":s,"Details":d} for u,s,d in crawl["errors"]],use_container_width=True,hide_index=True)
 
     report=html_report(pages[0].final_url,crawl,[x for x in checks if not x[0]],scores)
-    st.download_button("📥 Download HTML Client Report",report,file_name="seo-audit-suite-v5-report.html",mime="text/html")
+    st.download_button("📥 Download HTML Client Report",report,file_name="seo-audit-suite-v6.1.1-report.html",mime="text/html")

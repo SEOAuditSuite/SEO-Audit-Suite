@@ -132,7 +132,7 @@ def snapshot(html, final_url, headers=None):
                 rel=sorted(a.get('rel', []))), ensure_ascii=False, sort_keys=True))
     region = soup.find('main') or soup.find(attrs={'role': 'main'}) or soup.find('article') or soup.body or soup
     region_name = region.name or 'document'
-    for tag in list(region.find_all(['script', 'style', 'noscript', 'template', 'svg', 'nav', 'header', 'footer', 'aside'])):
+    for tag in list(region.find_all(['head', 'title', 'script', 'style', 'noscript', 'template', 'svg', 'nav', 'header', 'footer', 'aside'])):
         if tag.parent is not None:
             tag.decompose()
     for tag in list(region.find_all(True)):

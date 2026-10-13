@@ -46,6 +46,8 @@ fetch('/api').then(r=>r.json()).then(d=>{ document.querySelector('main').innerHT
             body=json.dumps({'html':parse_html(DOM).find('main').decode_contents()})
         elif url != BASE:
             raise AssertionError('Unexpected resource request: '+url)
+        if self.mode == 'head-only' and url == BASE:
+            body = '<html><head><title>Only title</title></head></html>'
         raw=body.encode();self.bytes+=len(raw)
         return dict(url=url,status=200,headers=headers,body=raw,redirects=[])
 
@@ -102,10 +104,21 @@ def main(output):
         evidence['deadline']=timed
         check('Isolated hanging renderer deadline enforced',not timed['comparison_available'] and 'deadline' in ' '.join(timed['warnings']) and time.monotonic()-start<16)
         check('Process tree cleanup confirmed',not any('cleanup could not' in w for w in timed['warnings']))
+        head, _ = run_fixture('head-only'); evidence['head_only'] = head
+        check('Head-only browser comparison available', head['comparison_available'])
+        check('Head-only title retained', head['raw']['fields']['Title']['values'] == ['Only title'])
+        check('Head-only metadata excluded from main text', head['comparison_available'] and
+              head['raw']['fields']['Main textual content']['count'] == 0 and
+              head['rendered']['fields']['Main textual content']['count'] == 0)
         pack=delivery(include_rendering=True,rendering_result=result)
         files=delivery_files(pack)
         for name,data in files.items():(output/name).write_bytes(data)
         evidence['report_sha256']=hashlib.sha256(files['client-report.html']).hexdigest()
+        from common import html_report
+        from test_stabilization import image_crawl
+        complete = html_report(BASE, image_crawl(), []).encode('utf-8')
+        (output/'complete-audit.html').write_bytes(complete)
+        evidence['complete_report_sha256'] = hashlib.sha256(complete).hexdigest()
         with sync_playwright() as p:
             browser=chrome(p)
             try:
@@ -117,11 +130,58 @@ def main(output):
                     check(name+' eight field summaries',page.locator('#rendering-comparison article').count()==8)
                     check(name+' no horizontal overflow',page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
                     check(name+' warning readable in report',page.locator('#rendering-comparison').inner_text().find('Raw noindex')>=0)
+                    check(name+' readable internal-link evidence', 'Keep link' in page.locator('#rendering-comparison').inner_text() and
+                          '"anchor":' not in page.locator('#rendering-comparison').inner_text())
                     page.screenshot(path=str(output/(name+'-top.png')),full_page=False)
                     page.locator('#rendering-comparison').scroll_into_view_if_needed()
                     page.screenshot(path=str(output/(name+'-comparison.png')),full_page=False)
                     page.evaluate('window.scrollTo(0,document.body.scrollHeight)')
                     page.screenshot(path=str(output/(name+'-bottom.png')),full_page=False)
+                    context.close()
+                    context=browser.new_context(viewport={'width':width,'height':height},service_workers='block')
+                    context.route('**/*',lambda route:route.fulfill(content_type='text/html',body=complete) if route.request.url=='https://report.example.test/' else route.abort())
+                    page=context.new_page();page.goto('https://report.example.test/',wait_until='load')
+                    text=page.locator('body').inner_text()
+                    check(name+' Complete Audit version', 'V6.1.1 (development)' in text)
+                    check(name+' Complete Audit old label absent', 'Pro V5' not in text)
+                    check(name+' Complete Audit image scopes', all(s in text for s in ('Crawl-wide image elements: 70', 'Crawl-wide unique image URLs: 7', 'First-page non-empty ALT coverage: 11/11')))
+                    layout = page.evaluate('''() => {
+                        const region = document.querySelector('.table-scroll');
+                        const table = region.querySelector('table');
+                        const bounds = () => ({viewport:innerWidth,
+                            documentWidth:document.documentElement.scrollWidth,
+                            regionWidth:region.clientWidth, tableWidth:table.getBoundingClientRect().width,
+                            tableRight:table.getBoundingClientRect().right,
+                            overflowingElements:[...document.querySelectorAll('body *')]
+                                .filter(e => e.getBoundingClientRect().right > innerWidth && !region.contains(e))
+                                .map(e => ({tag:e.tagName, className:e.className,
+                                    right:e.getBoundingClientRect().right})).slice(0,30)});
+                        const after = bounds();
+                        let before = null;
+                        if (innerWidth === 360) {
+                            region.before(table);
+                            before = bounds();
+                            region.append(table);
+                        }
+                        region.scrollLeft = region.scrollWidth;
+                        const reachable = table.getBoundingClientRect().right <= region.getBoundingClientRect().right + 1;
+                        const contained = region.getBoundingClientRect().right <= innerWidth;
+                        region.scrollLeft = 0;
+                        return {after,before,reachable,contained};
+                    }''')
+                    evidence.setdefault('complete_report_layout', {})[name] = layout
+                    check(name+' Complete Audit no horizontal overflow',page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+                    check(name+' Complete Audit table contained and last column reachable',layout['contained'] and layout['reachable'])
+                    if name == 'mobile':
+                        check('Original unwrapped table reproduces mobile overflow',
+                              layout['before']['documentWidth'] > 360 and layout['before']['tableRight'] > 360)
+                    page.screenshot(path=str(output/(name+'-complete-top.png')),full_page=False)
+                    page.get_by_role('heading',name='Site Coverage',exact=True).scroll_into_view_if_needed()
+                    page.screenshot(path=str(output/(name+'-complete-coverage.png')),full_page=False)
+                    page.locator('.table-scroll').scroll_into_view_if_needed()
+                    page.screenshot(path=str(output/(name+'-complete-table-left.png')),full_page=False)
+                    page.locator('.table-scroll').evaluate('(e) => {e.scrollLeft = e.scrollWidth;}')
+                    page.screenshot(path=str(output/(name+'-complete-table-right.png')),full_page=False)
                     context.close()
             finally:browser.close()
         status='passed' if all(c['status']=='passed' for c in checks) else 'failed'
@@ -132,11 +192,11 @@ def main(output):
                     source_sha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
                                    for p in ROOT.rglob('*.py') if '.venv' not in p.parts})
     (output/'browser-results.json').write_text(json.dumps(evidence,indent=2),encoding='utf-8')
-    (output/'Browser-Validation-Report.md').write_text('# Phase 3 Windows Chrome Validation\n\n'
+    (output/'Browser-Validation-Report.md').write_text('# V6.1.1 Phase A Windows Chrome Validation\n\n'
         +f"Status: **{status}**\n\nExecuted checks: {len(checks)}; passed: {evidence['passed_checks']}.\n\n"
         +('Error: '+error+'\n\n' if error else '')
         +'This run uses controlled in-memory responses, not a live client site. Unexecuted checks are not passed. '
-        +'Review the six normal viewport screenshots manually before acceptance.\n\n'
+        +'Review the fourteen normal viewport screenshots manually before acceptance.\n\n'
         +'\n'.join('- '+c['name']+': '+c['status'] for c in checks),encoding='utf-8')
     print(f"Status: {status}; executed: {len(checks)}; passed: {evidence['passed_checks']}")
     return 0 if status=='passed' else 1

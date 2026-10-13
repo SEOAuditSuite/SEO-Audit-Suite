@@ -61,7 +61,8 @@ if 'client_delivery' in st.session_state:
         st.info(result['status'] + ': ' + result['scope_note'])
         for warning in result['warnings']:
             st.warning(warning)
-        st.dataframe(result['rows'], use_container_width=True, hide_index=True)
+        from comparison_view import show_comparison
+        show_comparison(result)
     st.dataframe(delivery['issues'], use_container_width=True, hide_index=True)
     st.download_button("Download complete client pack", st.session_state['client_zip'], 'seo-client-pack.zip', 'application/zip', type='primary')
     for name, data in st.session_state['client_files'].items():
