@@ -251,3 +251,73 @@ its caller's deadline, although only four daemon resolver workers can remain
 outstanding. Existing Phase 3 replay CSP and same-origin restrictions remain;
 JavaScript-heavy sites may still produce incomplete evidence. No deployment is
 authorized by these changes.
+
+
+## Phase C2A — anonymous browser GET broker (development)
+
+Normal crawler HTTP(S) document/resource requests now use the C1 connection-bound
+`SafeSession` via `browser_isolation.GetBroker`. There is no direct
+`route.continue_()` or `route.fetch()` fallback. Navigation redirects are resolved
+in C1 before Chromium sees the final document at its true URL; requested identity,
+observed redirect chain, depth and cross-host graph exclusions remain available.
+Redirected subresources are blocked rather than replayed at an incorrect base URL.
+Direct public CDN scripts, styles, images and fonts are supported. XHR/fetch are
+same-origin anonymous GET only. Cookies, authorization, POST, cross-origin APIs,
+streaming/media and authenticated browsing are unsupported and can limit evidence.
+
+The shared context enables TLS verification, blocks service workers/WebSockets,
+rejects downloads and additional pages, and adds frame/worker/object/form CSP
+restrictions to normal documents. The browser launch explicitly enables Chromium
+sandboxing and retains it on both Chrome/Chromium attempts; unsupported sandbox
+launch fails, with only the existing C1 HTTP fallback permitted. A temporary
+browser profile is used; credentials/proxy environment variables are not passed
+to the browser. Phase 3 retains its stricter same-origin replay/CSP limits.
+
+Normal broker budgets: 100 network requests and 20 MiB per page; 500 requests and
+100 MiB per crawl; 5 MiB encoded/decoded per resource; 30 seconds of page network
+time; 10 navigation redirect hops; 200 representative resource rows. Failed
+transfers conservatively reserve their C1 byte allocation. The existing page,
+attempt and DOM limits still apply. Response-time evidence includes C1 preparation
+and browser extraction. No scoring formula is changed.
+
+`browser_security` evidence records observed HTTP statuses or unknown requests,
+redacted query-free URLs, blocked reasons, per-page summaries and truncation.
+Partial rendering makes observed-graph completeness false and adds warnings to
+Complete Audit and client HTML/PDF/JSON without creating new default exports.
+Scores describe the collected snapshot; missing content/links need verification
+when restrictions affect rendering. Reports without broker evidence retain their
+existing output. Nine default exports remain nine.
+
+This is application-level interception, NOT complete browser network isolation.
+The deny-proxy/flags/CSP are defence in depth, not an OS firewall. Browser-internal
+requests, alternative protocols, WebRTC/WebTransport bypasses, host-loopback
+services and compromised renderers need C3 containment. C2B's normal-crawler outer
+worker deadline/process cleanup is not implemented here. CPU/RAM/PID quotas,
+filesystem/secret isolation and public deployment remain pending. Phase 3's
+existing cleanup edge case is unchanged. A post-extraction DOM size check cannot
+prevent allocations or hostile JavaScript before capture. Local HTTP fallback
+must never be reported as browser validation.
+
+
+### C2A R2 — popup dispatch and Windows diagnostics
+
+Normal-crawler popup requests are rejected independently by GetBroker. Popup
+closure is queued and drained from normal capture control flow, avoiding a
+synchronous close waiting inside the page event dispatcher. Phase 3's existing
+strict routing and lifecycle are unchanged. C2B process containment is not added.
+The Windows harness now emits flushed stage/route progress, incremental progress
+JSON and periodic Python thread stacks. Its existing 240-second C2A timeout is
+unchanged. The exact cause of the two earlier Windows timeouts remains unverified
+without stack evidence; successful R2 Windows verification is still required.
+
+
+### C2A R3 — confirmed synchronous WebSocket callback wait
+
+Windows thread stacks identified `WebSocketRoute.close()` waiting inside the
+asyncio-dispatched WebSocket handler. Unlike ordinary control flow, that callback
+cannot synchronously wait for the same loop. The handler now records/queues the
+blocked socket and never calls `connect_to_server()`. Closure is drained from
+normal synchronous capture control flow. Phase 3 uses the same mechanism instead
+of its duplicate inline close callback; stricter same-origin/CSP rules remain.
+R2 popup deferral and logging remain. The Windows stage timeout is still 240 s.
+Real Windows R3 acceptance remains pending; C2B/C3 are not implemented here.

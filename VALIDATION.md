@@ -256,3 +256,85 @@ gzip/identity-only and no cookie/proxy inheritance can reduce site compatibility
 C2 browser egress and C3 process/network/resource containment remain necessary
 before any client-facing public deployment. Earlier historical Windows results
 in this document do not constitute C1 verification.
+
+
+## Phase C2A — local application-broker validation (2026-10-13)
+
+Baseline: `3f30b18ae7b3bccc3cfcf6e7908cc54018fca8a1`; detached isolated workspace.
+No commits, review branches, GitHub changes or deployment performed.
+
+- Complete Python 3.12 regression: **224 passed**, zero failures/errors/skips,
+  12.767 seconds. Includes all 194 baseline tests plus 30 C2A tests.
+- Focused C2A run: **30 passed**, 4.257 seconds. Covers secure launch/context,
+  TLS verification, credential environment filtering, WebSockets/popups/downloads,
+  C1-backed public CDN resources, same-origin APIs, frames/workers/non-GET blocks,
+  redirect preparation without native Location replay, mixed/private DNS,
+  IDNA/default-port wire identity, unknown statuses, bounded evidence and budgets,
+  HTTP fallback, partial-graph coverage and Complete Audit/report warnings.
+- Controlled real HTTP collectors ran in the suite; existing C1 real TLS tests ran.
+  Production transport has no test/private-network bypass.
+- Default nine exports and twelve Phase-2-enabled exports remain byte-identical
+  for controlled snapshots without browser_security data (fixed timestamp/PDF
+  metadata in harness only). Scoring AST, C1 SafeSession, link analysis/identity,
+  dependencies, Phase 3 ReplayRoutes/CSP/limits and compare_url lifecycle unchanged.
+  New broker evidence intentionally adds JSON fields/scope warnings to affected
+  browser runs; export filenames/count stay unchanged.
+- Representative partial-render HTML, PDF and JSON generated. The PDF first page
+  with the added scope warning was rendered and visually inspected: readable,
+  no observed clipping/overlap. HTML content verified; Chrome viewport verification
+  has NOT run locally.
+- Secure Chrome/Chromium launch attempted: **blocked, zero browser checks**.
+  Neither installed Chrome nor Playwright's configured Chromium executable exists
+  at the inspected paths. No browser installation or Windows verification claimed.
+- Windows package must pass 224 automated tests, 44 existing Chrome checks,
+  5 C1 bridge checks and 26 C2A checks (75 total), followed by visual review of
+  18 screenshots. Historical Windows runs do not accept this patch.
+
+Navigation redirects are resolved manually through C1 before final-URL capture;
+redirected subresources are blocked. This avoids relying on native redirected
+requests being intercepted at every hop. POST/cross-origin APIs/cookies/workers,
+frames, authenticated and streaming sites may yield partial evidence. Public CDN
+assets remain supported when they return a bounded, direct anonymous GET response.
+Response timing includes prefetch and extraction; scoring formulas are unchanged.
+
+C2A does not add normal-crawler process isolation/deadlines or fix Phase 3 cleanup
+(C2B). Sandbox/CSP/routes/deny-proxy are not a firewall or complete SSRF guarantee.
+C3 must constrain browser/network/host access, CPU/RAM/PIDs and filesystem/secrets.
+The loopback deny-proxy configuration assumes no usable service there; it cannot
+establish host-network isolation. Rendering already allocates memory before the
+existing DOM-size check. Public deployment remains on hold.
+
+
+### C2A R2 local regression (2026-10-13 UTC)
+
+228 automated tests passed (0 failures/errors/skips; Python 3.12; 18.539 s).
+Four new regressions cover deferred popup closure while requests stay blocked,
+already-closed popups, failed-launch progress with zero passes, and a genuinely
+stalled subprocess retaining flushed progress before an outer timeout. The last
+case uses a synthetic launch stall, not Chrome, and never marks it as passed
+browser validation. C2A Windows stage timeout stays 240 seconds. No Windows or
+real Chrome success is claimed. The popup callback wait risk is addressed; its
+causal connection to the two reported Windows waits is not verified without
+thread stacks. Scoring, nine default exports, C1 and Phase 3 restrictions remain.
+
+
+### C2A R3 — Windows stack-supported correction
+
+Supplied R2 run `20261014-122346-6019a762` repeatedly showed the browser/main thread
+in Playwright's sync `_sync`/`wait_for_future`, called by `WebSocketRoute.close`
+from `browser_isolation.py:56` inside `_on_web_socket_route`. The controlled server
+thread was idle in `serve_forever`; the last `/attachment` progress entry was not
+the blocked operation. The Playwright implementation invokes socket handlers
+from asyncio directly; inline sync close waits on that same dispatcher loop.
+
+R3 queues socket closure without a server connection and drains it from regular
+capture control flow in both normal crawl and Phase 3. Two new regressions verify
+that a handler running under asyncio never invokes sync close/connect, closure
+happens once outside dispatch, and Phase 3 has no duplicate inline override.
+Complete regression: 230 passed, 0 failures/errors/skips, Python 3.12.14, 20.900 s.
+Existing dependencies were reused via PYTHONPATH because the old venv interpreter
+symlink no longer resolved after runtime refresh; the runtime Node was used for
+Playwright's driver. No dependencies or security restrictions were changed.
+Scoring/default export compatibility remains verified. No real Chrome executable
+is available locally; Windows R3 and all 75 checks/18 screenshots remain pending.
+No timeout increase, GitHub operation or C2B/C3 expansion occurred.

@@ -53,6 +53,13 @@ if st.button("🚀 Run Professional Audit",type="primary"):
     if crawl["browser_used"]: st.success("Browser rendering active — JavaScript-rendered DOM was audited.")
     else: st.warning("Browser rendering was unavailable; HTML fallback was used.")
 
+    security = crawl.get('browser_security') or {}
+    if security.get('partial_render'):
+        st.warning("Browser rendering is partial: resources were blocked or unsuccessful. Missing content or links require verification; review the browser resource evidence.")
+        with st.expander("Browser resource evidence"):
+            st.dataframe(security.get('resources', []), hide_index=True)
+            st.caption("Reasons: " + '; '.join(f"{reason}: {count}" for reason, count in security.get('blocked', {}).items()))
+
     st.subheader("🔎 First-page checks and crawl-wide observations")
     st.caption(f"Metadata, headings, text and ALT checks refer to the first inspected page: {pages[0].final_url}. Aggregate checks state their crawl-wide scope.")
     findings=[]

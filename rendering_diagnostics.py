@@ -14,6 +14,7 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 from safe_http import SafeSession, resolve_addresses
+from browser_isolation import secure_context, close_blocked_websockets
 from bs4 import BeautifulSoup
 from common import HEADERS, _launch_browser, clean_text, parse_html
 from link_diagnostics import url_key, validate_fetch_url
@@ -251,15 +252,12 @@ def _compare_page(url, transport=None):
                 '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'])
             try:
                 stage = 'Browser replay/capture'
-                context = browser.new_context(user_agent=HEADERS['User-Agent'], viewport={'width':1440,'height':900},
-                    service_workers='block', accept_downloads=False, ignore_https_errors=False,
-                    proxy={'server':'http://127.0.0.1:9', 'bypass':'<-loopback>'})
+                shared_blocks = Counter()
+                context = secure_context(browser, blocked=shared_blocks, user_agent=HEADERS['User-Agent'],
+                    viewport={'width':1440,'height':900}, init_script=False)
                 routes = ReplayRoutes(initial, transport)
+                routes.blocked = shared_blocks
                 context.route('**/*', routes.handle)
-                def close_socket(ws):
-                    routes.blocked['WebSocket blocked'] += 1
-                    ws.close()
-                context.route_web_socket('**/*', close_socket)
                 context.add_init_script(INIT_SCRIPT)
                 page = context.new_page()
                 errors = []
@@ -271,6 +269,7 @@ def _compare_page(url, transport=None):
                 page.on('download', lambda download: download.cancel())
                 page.goto(initial['url'], wait_until='domcontentloaded', timeout=15000)
                 page.wait_for_timeout(LIMITS['settle_ms'])
+                close_blocked_websockets(context)
                 html = page.content()
                 result['browser_url'] = page.url
                 result['rendered_dom_sha256'] = hashlib.sha256(html.encode('utf-8')).hexdigest()

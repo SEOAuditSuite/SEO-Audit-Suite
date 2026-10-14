@@ -76,15 +76,19 @@ def crawl_status_cache(crawl):
 
 
 def coverage_note(crawl):
+    security = crawl.get('browser_security') or {}
+    rendering_note = (' Browser rendering is partial: resources were blocked or unsuccessful. '
+                      'Review browser_security evidence before interpreting missing content or links.'
+                      if security.get('partial_render') else '')
     c = crawl.get('coverage')
     if not c:
-        return 'Crawl coverage/depth unavailable in this legacy snapshot; completeness is unknown.'
+        return 'Crawl coverage/depth unavailable in this legacy snapshot; completeness is unknown.' + rendering_note
     return (f"Audit hostname: {c.get('audit_hostname', 'not recorded')}. "
             f"Sample: {c['pages_inspected']} pages inspected; requested limit {c['requested_limit']}; "
             f"{c['attempted_urls']} URL attempts; {len(c['remaining_queue'])} queued; "
             f"{c['skipped_discoveries']} discoveries omitted by limit; "
             f"{len(c.get('out_of_scope_redirects', []))} cross-host destinations excluded. Stop: {c['stop_reason']}. "
-            'Queue exhaustion only describes observed navigation, not full-site coverage.')
+            'Queue exhaustion only describes observed navigation, not full-site coverage.' + rendering_note)
 
 
 def analyze_links(crawl, checks=None, include_external=False):
