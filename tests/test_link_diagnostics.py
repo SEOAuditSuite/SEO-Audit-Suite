@@ -204,13 +204,13 @@ class FetchGuardTests(unittest.TestCase):
         self.assertEqual(result.history,[a])
         self.assertEqual(result._content,b'hello')
 
-    def test_browser_route_blocks_private_and_allows_public_syntax(self):
+    def test_legacy_browser_route_has_no_direct_network_fallback(self):
         blocked = Mock(); blocked.request.url = 'http://192.168.1.1/image.png'
         _guard_browser_route(blocked)
         blocked.abort.assert_called_once(); blocked.continue_.assert_not_called()
         allowed = Mock(); allowed.request.url = BASE+'/image.png'
         _guard_browser_route(allowed)
-        allowed.continue_.assert_called_once()
+        allowed.abort.assert_called_once(); allowed.continue_.assert_not_called()
 
     def test_cache_deduplicates_status_requests(self):
         response = Mock(status_code=200,url=BASE+'/target',history=[])

@@ -224,16 +224,8 @@ def _extract_page(soup, url, final_url, status, response_ms, browser_rendered=Fa
 
 
 def _launch_browser(playwright, launch_args=None):
-    errors = []
-    try:
-        return playwright.chromium.launch(channel="chrome", headless=True, **({'args': launch_args} if launch_args else {}))
-    except Exception as exc:
-        errors.append(f"installed Chrome: {exc}")
-    try:
-        return playwright.chromium.launch(headless=True, **({'args': launch_args} if launch_args else {}))
-    except Exception as exc:
-        errors.append(f"Playwright Chromium: {exc}")
-    raise RuntimeError("Browser launch failed. " + " | ".join(errors))
+    from browser_isolation import launch_browser
+    return launch_browser(playwright, launch_args)
 
 
 def browser_available():
@@ -251,6 +243,8 @@ def crawl_page_browser(page, url, timeout=30000):
     started = time.perf_counter()
     validate_fetch_url(url)
     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+    from browser_isolation import close_blocked_websockets
+    close_blocked_websockets(page.context)
     try: page.wait_for_load_state("networkidle", timeout=8000)
     except Exception: pass
     page.wait_for_timeout(700)
@@ -299,12 +293,8 @@ def crawl_page_requests(url, timeout=REQUEST_TIMEOUT):
 
 
 def _guard_browser_route(route):
-    try:
-        validate_fetch_url(route.request.url)
-    except ValueError:
-        route.abort()
-    else:
-        route.continue_()
+    # Legacy entry point is fail-closed; all crawler traffic must use GetBroker.
+    route.abort()
 
 
 def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
@@ -319,6 +309,7 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
     inspected, attempted = set(), set()
     skipped = 0
     browser_used, browser_error = False, ''
+    browser_security = None
     crawl_origin = start_url
     discovery_limit = limit * 8
 
@@ -370,13 +361,37 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
             with sync_playwright() as p:
                 browser = _launch_browser(p)
                 try:
-                    context = browser.new_context(user_agent=HEADERS['User-Agent'],
-                        viewport={'width': 1440, 'height': 900}, ignore_https_errors=True,
-                        service_workers='block')
-                    context.route('**/*', _guard_browser_route)
-                    page = context.new_page()
-                    browser_used = True
-                    consume(lambda u: crawl_page_browser(page, u, timeout=timeout))
+                    from browser_isolation import GetBroker, secure_context, close_blocked_popups, close_blocked_websockets
+                    broker = GetBroker(HEADERS)
+                    try:
+                        context = secure_context(browser, user_agent=HEADERS['User-Agent'],
+                            viewport={'width': 1440, 'height': 900}, on_block=broker.record_block, defer_popup_close=True)
+                        context.route('**/*', broker.handle)
+                        page = context.new_page()
+                        broker.page = page
+                        browser_used = True
+                        def load(u):
+                            broker.begin_navigation(u)
+                            try:
+                                started = time.perf_counter()
+                                final, chain = broker.prepare_navigation(u)
+                                audit = crawl_page_browser(page, final, timeout=timeout)
+                                close_blocked_popups(context)
+                                audit.response_ms = int((time.perf_counter()-started)*1000)
+                                policy_blocks = page.evaluate('window.__seoBrowserPolicyBlocks || 0')
+                                if isinstance(policy_blocks, int) and policy_blocks:
+                                    broker.record_block(f'CSP restricted resources ({policy_blocks} events)')
+                                audit.url = u
+                                audit.redirect_chain = chain
+                                return audit
+                            except Exception:
+                                broker.record_block('Navigation unavailable; HTTP status unknown')
+                                close_blocked_popups(context)
+                                raise
+                        consume(load)
+                    finally:
+                        browser_security = broker.evidence()
+                        broker.close()
                 finally:
                     browser.close()
         except Exception as exc:
@@ -396,8 +411,13 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
                     discovered_depths=depths, remaining_queue=remaining,
                     skipped_discoveries=skipped, stop_reason=reason,
                     observed_graph_complete=reason == 'queue_exhausted', full_site_complete=False)
-    return dict(pages=results, errors=errors, browser_used=browser_used,
-                browser_error=browser_error, status_checks=checks, coverage=coverage)
+    output = dict(pages=results, errors=errors, browser_used=browser_used,
+                  browser_error=browser_error, status_checks=checks, coverage=coverage)
+    if browser_security is not None:
+        output['browser_security'] = browser_security
+        if browser_security['partial_render']:
+            coverage['observed_graph_complete'] = False
+    return output
 
 
 def page_to_dict(page): return asdict(page)
