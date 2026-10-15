@@ -15,6 +15,28 @@ CLEANUP_SECONDS = 5
 OUTPUT_BYTES = 64 * 1024 * 1024
 
 
+def _worker_environment(environ=None):
+    """Bootstrap paths only; do not mutate the parent or forward its credentials.
+
+    Profile paths are compatibility inputs, not filesystem isolation. C3B/C3C
+    resource and OS/network controls remain separate. Python executes from the
+    explicit sys.executable used by callers; no inherited Python import hooks.
+    """
+    allowed = {
+        'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC',
+        'TEMP', 'TMP', 'TMPDIR', 'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA',
+        'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432',
+        'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME', 'DISPLAY', 'WAYLAND_DISPLAY', 'LANG', 'LC_ALL',
+        'PLAYWRIGHT_BROWSERS_PATH', 'PLAYWRIGHT_NODEJS_PATH',
+    }
+    source = os.environ if environ is None else environ
+    result = {key:value for key,value in source.items() if key.upper() in allowed}
+    # Fixed runtime settings replace, rather than inherit, Python configuration.
+    result.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8',
+                  PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1')
+    return result
+
+
 class WindowsJob:
     """Own only this worker tree, never the user's existing Chrome processes."""
     def __init__(self, process):
@@ -264,7 +286,7 @@ def run_worker(command, payload, seconds):
     flags={'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP} if os.name=='nt' else {'start_new_session':True}
     try:
         process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,text=True,encoding='utf-8',**flags)
+            stderr=subprocess.DEVNULL,text=True,encoding='utf-8',env=_worker_environment(),**flags)
     except OSError: return WorkerResult(reason='worker_start_failed')
     job=None; result=WorkerResult()
     try:

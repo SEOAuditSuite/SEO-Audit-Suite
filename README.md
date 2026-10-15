@@ -398,3 +398,46 @@ missing/early/late evidence, incomplete or surviving Job members, bounded Job
 queries and serializable supervisor diagnostics. Full corrected target: 269
 automated tests and the same 98 Chrome checks/22 screenshots. R2 Chrome/Windows
 acceptance remains pending; prior-version passes do not certify the R2 package.
+
+
+## Phase C3A — local launch and worker environment policy (development)
+
+Baseline: `faa7a38337f1217953298794baf0137da2cfe5af`. This phase adds only local
+Streamlit binding and explicit browser-worker environment filtering. C1, C2A
+and C2B security behavior, deadlines, scoring and default exports are preserved.
+
+### Safe local Windows use
+
+- Use Python 3.12 in the project's virtual environment and installed Google Chrome.
+  Run **START-APP.bat**; both its virtual-environment and fallback-Python branches
+  explicitly bind to **127.0.0.1**. Open `http://127.0.0.1:8501` locally. The
+  launcher does not disable Streamlit CORS or XSRF protection or alter their config.
+- A manual launch must include the same binding:
+  `python -m streamlit run app.py --server.address=127.0.0.1`. A separate manual
+  command, environment override or configuration remains the operator's responsibility.
+- Prefer a dedicated non-admin audit account and clean working directories. Audit
+  only authorized public websites, keep Chrome/Windows updated, and do not expose
+  the app through router forwarding, public tunnels or shared LAN hosting.
+- PageSpeed credentials can still be entered in the existing password field or
+  supplied as `PAGESPEED_API_KEY` to the parent application. The launcher does not
+  clear the parent environment; browser workers never receive that variable.
+- Install requirements into the selected virtual environment. Workers use the
+  caller's explicit Python executable; inherited `PYTHONPATH`, `PYTHONHOME`, user
+  site-packages and Python/Node startup hooks are not supported bootstrap methods.
+
+Both normal crawls and Phase 3 workers receive only explicit OS bootstrap/profile,
+temporary/cache, locale/display and Chrome installation paths plus optional
+`PLAYWRIGHT_BROWSERS_PATH` / `PLAYWRIGHT_NODEJS_PATH` runtime paths. Fixed UTF-8,
+no-user-site and no-bytecode Python settings replace inherited Python settings.
+Proxy variables, PageSpeed/API credentials, tokens, passwords and unrelated
+parent variables are excluded; the parent's values are not mutated or logged.
+Existing browser environment filtering remains unchanged. Bootstrap path values
+are trusted local configuration, not a place to store secrets.
+
+**Limits:** this is environment hygiene and loopback binding, not OS network or
+filesystem isolation. Profile paths remain available for compatibility; the worker
+still runs under the same OS account and permissions. C3B CPU/RAM/PID quotas and
+whole-operation resource controls, and C3C firewall/container/public infrastructure,
+are not implemented. Public deployment remains on hold. Native Windows launch
+and Chrome acceptance must be recorded separately; local automated tests do not
+certify Windows Firewall, ACL or container isolation.
