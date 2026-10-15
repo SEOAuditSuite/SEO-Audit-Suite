@@ -297,7 +297,7 @@ def _guard_browser_route(route):
     route.abort()
 
 
-def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
+def _crawl_site_local(start_url, limit=15, timeout=30000, prefer_browser=True, checkpoint=None):
     from collections import deque
     start_url = normalize_url(start_url)
     validate_fetch_url(start_url)
@@ -312,15 +312,43 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
     browser_security = None
     crawl_origin = start_url
     discovery_limit = limit * 8
+    active_url = None
+
+    def snapshot(reason=None):
+        remaining = [u for u in queue if url_key(u) not in inspected and url_key(u) not in attempted]
+        stop = reason or ('browser_interrupted' if browser_used and browser_error else
+            'page_limit' if remaining and len(results) >= limit else
+            'attempt_limit' if remaining else 'discovery_limit' if skipped else
+            'queue_exhausted_with_errors' if errors else 'queue_exhausted')
+        coverage = dict(seed_url=start_url, audit_hostname=urlparse(crawl_origin).hostname.lower(),
+            out_of_scope_redirects=out_of_scope, requested_limit=limit, pages_inspected=len(results),
+            attempted_urls=len(attempted), discovery_limit=discovery_limit, discovered_depths=depths,
+            remaining_queue=remaining, skipped_discoveries=skipped, stop_reason=stop,
+            observed_graph_complete=stop == 'queue_exhausted', full_site_complete=False)
+        if active_url is not None:
+            coverage['inflight_url'] = active_url
+        output = dict(pages=results, errors=errors, browser_used=browser_used, browser_error=browser_error,
+            status_checks=checks, coverage=coverage)
+        if browser_security is not None:
+            output['browser_security'] = browser_security
+            if browser_security['partial_render']: coverage['observed_graph_complete'] = False
+        return output
+
+    def save():
+        if checkpoint is not None: checkpoint(snapshot('worker_running'))
+
+    save()
 
     def consume(loader):
-        nonlocal skipped, crawl_origin
+        nonlocal skipped, crawl_origin, active_url
         while queue and len(results) < limit and len(attempted) < discovery_limit:
             current = queue.popleft()
             key = url_key(current)
             if key in inspected or key in attempted:
                 continue
             attempted.add(key)
+            active_url = current
+            save()
             try:
                 audit = loader(current)
                 audit.crawl_depth = depths[key]
@@ -354,6 +382,9 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
                 errors.append((current, 'Request error', message))
                 checks.append(dict(url=current, status=None, requested_status=None, final_url='',
                                    redirect_hops=0, redirect_chain=[], classification='error', error=message))
+            finally:
+                active_url = None
+                save()
 
     if prefer_browser:
         try:
@@ -370,6 +401,7 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
                         page = context.new_page()
                         broker.page = page
                         browser_used = True
+                        save()
                         def load(u):
                             broker.begin_navigation(u)
                             try:
@@ -388,36 +420,105 @@ def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True):
                                 broker.record_block('Navigation unavailable; HTTP status unknown')
                                 close_blocked_popups(context)
                                 raise
-                        consume(load)
+                        def checkpoint_load(u):
+                            nonlocal browser_security
+                            try: return load(u)
+                            finally: browser_security = broker.evidence()
+                        consume(checkpoint_load)
                     finally:
                         browser_security = broker.evidence()
-                        broker.close()
+                        try: broker.close()
+                        finally:
+                            if 'context' in locals(): context.close()
                 finally:
                     browser.close()
         except Exception as exc:
             browser_error = type(exc).__name__ + ': browser unavailable or interrupted'
     if not browser_used:
         consume(lambda u: crawl_page_requests(u, timeout=min(timeout / 1000, REQUEST_TIMEOUT)))
-    remaining = [u for u in queue if url_key(u) not in inspected and url_key(u) not in attempted]
-    reason = ('browser_interrupted' if browser_used and browser_error else
-              'page_limit' if remaining and len(results) >= limit else
-              'attempt_limit' if remaining else
-              'discovery_limit' if skipped else
-              'queue_exhausted_with_errors' if errors else 'queue_exhausted')
-    coverage = dict(seed_url=start_url, audit_hostname=urlparse(crawl_origin).hostname.lower(),
-                    out_of_scope_redirects=out_of_scope,
-                    requested_limit=limit, pages_inspected=len(results),
-                    attempted_urls=len(attempted), discovery_limit=discovery_limit,
-                    discovered_depths=depths, remaining_queue=remaining,
-                    skipped_discoveries=skipped, stop_reason=reason,
-                    observed_graph_complete=reason == 'queue_exhausted', full_site_complete=False)
-    output = dict(pages=results, errors=errors, browser_used=browser_used,
-                  browser_error=browser_error, status_checks=checks, coverage=coverage)
-    if browser_security is not None:
-        output['browser_security'] = browser_security
-        if browser_security['partial_render']:
-            coverage['observed_graph_complete'] = False
+    output = snapshot()
+    if checkpoint is not None: checkpoint(output)
     return output
+
+
+def _crawl_wire(crawl):
+    return dict(crawl, pages=[page_to_dict(p) for p in crawl['pages']])
+
+
+def _crawl_from_wire(crawl):
+    if not isinstance(crawl, dict) or not all(k in crawl for k in ('pages','errors','browser_used','browser_error','status_checks','coverage')):
+        raise ValueError('Incomplete crawl worker result')
+    if not isinstance(crawl['coverage'], dict) or not all(k in crawl['coverage'] for k in (
+            'pages_inspected','remaining_queue','stop_reason','observed_graph_complete')):
+        raise ValueError('Incomplete crawl coverage')
+    return dict(crawl, pages=[PageAudit(**p) for p in crawl['pages']])
+
+
+def _write_crawl_checkpoint(path, crawl):
+    from pathlib import Path
+    from browser_supervision import OUTPUT_BYTES
+    data = json.dumps(_crawl_wire(crawl), ensure_ascii=True).encode('utf-8')
+    if len(data) > OUTPUT_BYTES: raise ValueError('Crawl checkpoint exceeds serialization limit')
+    dest = Path(path)
+    pending = dest.with_suffix('.pending')
+    pending.write_bytes(data)
+    pending.replace(dest)
+
+
+def crawl_site(start_url, limit=15, timeout=30000, prefer_browser=True, wall_seconds=None):
+    """Browser mode always runs in a supervised worker; HTTP-only mode uses C1."""
+    import math
+    from pathlib import Path
+    import sys
+    import tempfile
+    from browser_supervision import run_worker, OUTPUT_BYTES
+    start_url = normalize_url(start_url)
+    validate_fetch_url(start_url)
+    if not isinstance(limit, int) or not 1 <= limit <= 500:
+        raise ValueError('Page limit must be between 1 and 500')
+    if not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 120000:
+        raise ValueError('Navigation timeout must be between 1 and 120000 milliseconds')
+    if not prefer_browser:
+        return _crawl_site_local(start_url, limit, timeout, False)
+    seconds = wall_seconds if wall_seconds is not None else min(600, max(60, 15+limit*(timeout/1000+15)))
+    if not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 1 <= seconds <= 600:
+        raise ValueError('Browser execution deadline must be between 1 and 600 seconds')
+    with tempfile.TemporaryDirectory(prefix='seo-crawl-') as temp:
+        checkpoint = Path(temp)/'crawl.json'
+        payload = json.dumps(dict(url=start_url, limit=limit, timeout=timeout, checkpoint=str(checkpoint)))
+        worker = run_worker([sys.executable, str(Path(__file__).resolve()), '--crawl-worker'], payload, seconds)
+        try:
+            if checkpoint.stat().st_size > OUTPUT_BYTES: raise ValueError('Checkpoint limit')
+            crawl = _crawl_from_wire(json.loads(checkpoint.read_text(encoding='utf-8')))
+        except (OSError, ValueError, TypeError, KeyError):
+            crawl = _crawl_site_empty(start_url, limit)
+            if not worker.reason: worker.reason = 'invalid_worker_result'
+        if not worker.reason and worker.output.strip() != 'crawl-complete': worker.reason = 'invalid_worker_result'
+        if worker.reason:
+            coverage = crawl['coverage']
+            coverage.update(stop_reason=worker.reason, observed_graph_complete=False, full_site_complete=False)
+            active = coverage.pop('inflight_url', None)
+            message = 'Browser worker stopped ('+worker.reason+'); unfinished URLs and rendering remain unverified.'
+            if active:
+                crawl['status_checks'].append(dict(url=active, status=None, requested_status=None, final_url='',
+                    redirect_hops=0, redirect_chain=[], classification='error', error=message))
+                crawl['errors'].append((active, 'Request error', message))
+                coverage['unfinished_url'] = active
+            crawl['browser_error'] = message
+            # Keep broker restrictions and partial rendering separate from lifecycle failure.
+            crawl['browser_supervision'] = dict(deadline_seconds=seconds, stop_reason=worker.reason,
+                cleanup_confirmed=worker.cleanup_confirmed, partial_evidence=True)
+            if not worker.cleanup_confirmed:
+                crawl['browser_error'] += ' Process-tree cleanup could not be confirmed; verify leftover worker processes.'
+        return crawl
+
+
+def _crawl_site_empty(url, limit):
+    return dict(pages=[], errors=[], browser_used=False, browser_error='', status_checks=[], coverage=dict(
+        seed_url=url, audit_hostname=urlparse(url).hostname.lower(), requested_limit=limit, pages_inspected=0,
+        attempted_urls=0, discovery_limit=limit*8, discovered_depths={url_key(url):0}, remaining_queue=[url],
+        skipped_discoveries=0, stop_reason='worker_unavailable', observed_graph_complete=False, full_site_complete=False,
+        out_of_scope_redirects=[]))
 
 
 def page_to_dict(page): return asdict(page)
@@ -1005,3 +1106,13 @@ def extract_aeo_question_answers_browser(page):
 
     except Exception:
         return []
+
+
+if __name__ == '__main__':
+    import sys
+    if sys.argv[1:] == ['--crawl-worker']:
+        # Windows Job Object is assigned by the parent before this stdin gate opens.
+        request = json.load(sys.stdin)
+        _crawl_site_local(request['url'], request['limit'], request['timeout'], True,
+            lambda crawl: _write_crawl_checkpoint(request['checkpoint'], crawl))
+        print('crawl-complete', flush=True)

@@ -321,3 +321,80 @@ normal synchronous capture control flow. Phase 3 uses the same mechanism instead
 of its duplicate inline close callback; stricter same-origin/CSP rules remain.
 R2 popup deferral and logging remain. The Windows stage timeout is still 240 s.
 Real Windows R3 acceptance remains pending; C2B/C3 are not implemented here.
+
+
+## Phase C2B — supervised browser lifecycle (development)
+
+Baseline: `9439ff93d89854f6b207ad68057ae75e51fbedd2`. C1, C2A R3 and the
+discovery-status correction are merged. Earlier pending C2A statements above
+record their pre-acceptance development state; accepted R3 had 230 automated
+tests, 75 Chrome checks and 18 reviewed screenshots. C2B acceptance is separate.
+
+Normal `crawl_site(..., prefer_browser=True)` now runs the existing brokered
+crawler in a dedicated Python worker. Default wall budget is
+`min(600, max(60, 15 + limit * (timeout / 1000 + 15)))` seconds; explicit
+`wall_seconds` accepts 1–600 seconds. Navigation timeout accepts 1–120000 ms.
+Startup, C1 HTTP fallback inside that worker, rendering and graceful shutdown
+share this deadline. A parent timeout/crash never starts a retry or unrestricted
+browser. Explicit HTTP-only crawling still uses the existing C1 path.
+
+Windows assigns a kill-on-close Job Object before releasing the worker's stdin
+gate. Failed assignment stops before Chrome can start. POSIX uses a dedicated
+session/process group; Linux also tracks owned descendants and detached Chrome
+groups by host PID/start-time identity. Cleanup runs after success, crash, timeout and propagated
+interruption, including stray descendants. Browser contexts close explicitly
+before browsers. Cleanup has separate bounded waits (up to approximately 12
+additional seconds); incomplete confirmation is an operator warning, not success.
+Phase 3 uses the same supervisor and catches the second pipe-drain timeout.
+
+Atomic, local crawl checkpoints retain completed pages, link/redirect evidence,
+queue, depths and coverage. Checkpoint/result acceptance is capped at 64 MiB
+(this is a serialization limit, not a process RAM quota). Interrupted in-flight
+requests have unknown status; no missing headings or broken-link verdicts are
+invented. Lifecycle evidence appears only on abnormal runs in existing JSON
+and report scope notes; successful output fields, scoring formulas and the nine
+default export filenames remain unchanged.
+
+C3 remains required: network egress/host/secret isolation, CPU/RAM/PID quotas,
+container/OS watchdogs and protection against compromised processes escaping
+POSIX groups or disabling the parent. Application interception and lifecycle
+control do not establish public deployment readiness. Non-Linux POSIX hosts cannot certify detached-tree
+cleanup and report it as unconfirmed rather than success. Windows Job behavior and
+real Chrome lifecycle checks require the separate C2B validation package.
+
+
+### C2B R2 — verified Windows fixture deadline ordering
+
+Windows run `20261014-153924-677c6efb` matched the original 14-file patch and
+all source checksums: 256 automated, 44 existing Chrome, 5 C1 and 26 C2A checks
+passed; C2B passed 21/23. The two failed checks were the infinite-JavaScript hard
+deadline and its tree-cleanup assertion. Actual evidence was a navigation
+TimeoutError, `queue_exhausted_with_errors`, unknown HTTP status and no abnormal
+`browser_supervision` record. This was not a demonstrated tree-cleanup failure.
+Crash and browser-close deadline cases confirmed cleanup on the same Windows run.
+
+Confirmed fixture error: every navigation used 5000 ms but the infinite-script
+worker wall deadline was 10 seconds. The inner timeout won and the crawler
+closed normally before the hard-deadline case could execute. R2 keeps the outer
+10-second deadline and cleanup waits unchanged. Only that controlled fixture
+uses the existing production-default 30000 ms navigation budget, deliberately
+longer than the outer deadline. Normal fixture navigation remains 5000 ms.
+Production navigation defaults/limits, deadlines, Job assignment, termination,
+C1/C2A policies, scoring and exports are unchanged. No implementation failure
+in termination has been established by the supplied evidence.
+
+R2 adds diagnostic evidence, not relaxed protection: actual worker/driver IDs,
+script-start marker, requested navigation budget, elapsed wall/cleanup time,
+and exact owned Windows Job membership before termination and after cleanup.
+The existing two checks now require actual script execution, correctly timed
+hard deadline and owned worker/driver membership followed by zero active Job
+processes. Membership-query failures/truncation cannot count as complete proof.
+No URLs, command lines, credentials or inherited environment are added to logs.
+Diagnostics remain outside normal application outputs; report/export fields
+and filenames remain compatible.
+
+Thirteen focused R2 regressions cover navigation-vs-wall timeout distinction,
+missing/early/late evidence, incomplete or surviving Job members, bounded Job
+queries and serializable supervisor diagnostics. Full corrected target: 269
+automated tests and the same 98 Chrome checks/22 screenshots. R2 Chrome/Windows
+acceptance remains pending; prior-version passes do not certify the R2 package.

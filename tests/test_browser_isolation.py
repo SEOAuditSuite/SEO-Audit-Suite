@@ -12,7 +12,7 @@ from requests import Response
 from requests.structures import CaseInsensitiveDict
 
 import browser_isolation as bi
-from common import HEADERS, crawl_site, overall_scores, html_report, _guard_browser_route
+from common import HEADERS, _crawl_site_local as crawl_site, overall_scores, html_report, _guard_browser_route
 from link_diagnostics import coverage_note
 from client_workflow import build_delivery, delivery_files
 from test_regressions import fixture_page, discovery

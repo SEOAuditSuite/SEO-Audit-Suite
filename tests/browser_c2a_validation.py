@@ -104,7 +104,7 @@ try { window.open('/popup'); } catch(e) {}
                     finally:stage('Route completed: '+route.request.resource_type+' '+urlsplit(route.request.url).path)
                 stage('Normal crawler starting')
                 with patch.object(common,'crawl_page_browser',side_effect=inspect),patch.object(bi.GetBroker,'handle',traced_route):
-                    crawl=common.crawl_site(site.base+'/',limit=10)
+                    crawl=common._crawl_site_local(site.base+'/',limit=10)
                 stage('Normal crawler completed')
             links=analyze_links(crawl);security=crawl.get('browser_security',{});evidence['crawl_security']=security;evidence['coverage']=crawl['coverage'];evidence['requests']=site.server.observed_requests
             pages=crawl['pages'];root=next((p for p in pages if p.final_url==site.base+'/'),None)
@@ -130,7 +130,7 @@ try { window.open('/popup'); } catch(e) {}
             check('Restricted render explicit and graph incomplete',security.get('partial_render') and not crawl['coverage']['observed_graph_complete'])
             check('Blocked requests remain unknown in resource evidence',any(x['status'] is None for x in security.get('resources',[])))
             stage('Truncated crawl starting')
-            truncated=common.crawl_site(site.base+'/',limit=1)
+            truncated=common._crawl_site_local(site.base+'/',limit=1)
             stage('Truncated crawl completed')
             check('Page limit and remaining queue evidence preserved',truncated['coverage']['stop_reason']=='page_limit' and bool(truncated['coverage']['remaining_queue']))
             stage('Report generation starting')

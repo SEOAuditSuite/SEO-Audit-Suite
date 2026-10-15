@@ -80,6 +80,11 @@ def coverage_note(crawl):
     rendering_note = (' Browser rendering is partial: resources were blocked or unsuccessful. '
                       'Review browser_security evidence before interpreting missing content or links.'
                       if security.get('partial_render') else '')
+    supervision = crawl.get('browser_supervision') or {}
+    if supervision.get('partial_evidence'):
+        rendering_note += ' Browser execution stopped; unfinished URLs have unknown status and rendering is incomplete.'
+        if not supervision.get('cleanup_confirmed'):
+            rendering_note += ' Process-tree cleanup could not be confirmed; operator verification is required.'
     c = crawl.get('coverage')
     if not c:
         return 'Crawl coverage/depth unavailable in this legacy snapshot; completeness is unknown.' + rendering_note
