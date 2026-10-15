@@ -15,7 +15,7 @@ LIMITS = dict(page_requests=100, crawl_requests=500, resource_bytes=5*1024*1024,
               page_bytes=20*1024*1024, crawl_bytes=100*1024*1024,
               page_network_seconds=30, redirects=10, evidence_entries=200)
 NOTE = ('C2A anonymous GET browser broker; application interception is not complete network isolation. '
-        'Blocked resources can limit rendered SEO evidence. C2B process deadlines and C3 containment remain pending.')
+        'Blocked resources can limit rendered SEO evidence. C2B supervised crawler/diagnostic deadlines apply; C3 containment remains pending.')
 DOC_POLICY = "frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'"
 INIT_SCRIPT = """(() => {
     window.__seoBrowserPolicyBlocks = 0;

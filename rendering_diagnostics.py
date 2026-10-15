@@ -299,7 +299,9 @@ def _compare_page(url, transport=None):
                                  http_requests=transport.requests, decoded_bytes=transport.bytes),
                     browser_version=browser.version)
             finally:
-                browser.close()
+                try:
+                    if 'context' in locals(): context.close()
+                finally: browser.close()
     except Exception as exc:
         result['warnings'] = [stage + ' failed (' + type(exc).__name__ + '); verify browser availability, access and resource limits. Comparison not assessed.']
     finally:
@@ -316,32 +318,20 @@ def compare_url(url):
         validate_fetch_url(url)
     except ValueError:
         return unavailable('[invalid URL]', 'Only public HTTP(S) URLs without credentials are supported.')
-    flags = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}
+    from browser_supervision import run_worker
+    worker = run_worker([sys.executable, str(Path(__file__).resolve()), '--worker'],
+        json.dumps({'url': url}), LIMITS['wall_seconds'])
+    if worker.reason:
+        message = ('Isolated execution deadline exceeded; no comparison is available.' if worker.reason == 'execution_deadline'
+            else 'Isolated worker unavailable ('+worker.reason+'); no comparison is available.')
+        if not worker.cleanup_confirmed:
+            message += ' Process-tree cleanup could not be confirmed; verify leftover worker processes.'
+        return unavailable(url, message)
     try:
-        process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--worker'],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', **flags)
-    except OSError:
-        return unavailable(url, 'Isolated worker could not start; no comparison is available.')
-    try:
-        output, _ = process.communicate(json.dumps({'url': url}), timeout=LIMITS['wall_seconds'])
-        if process.returncode:
-            return unavailable(url, 'Isolated worker failed; no comparison is available.')
-        return json.loads(output)
-    except subprocess.TimeoutExpired:
-        cleanup_failed = False
-        try:
-            if os.name == 'nt':
-                cleanup_failed = subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=5).returncode != 0
-            else:
-                os.killpg(process.pid, signal.SIGKILL)
-        except (OSError, subprocess.TimeoutExpired):
-            cleanup_failed = True
-        finally:
-            process.kill()
-            process.communicate(timeout=5)
-        return unavailable(url, '45-second isolated execution deadline exceeded; no comparison is available.' +
-                           (' Process-tree cleanup could not be confirmed; close leftover browser processes.' if cleanup_failed else ''))
-    except (ValueError, OSError):
+        result = json.loads(worker.output)
+        if not isinstance(result, dict) or not isinstance(result.get('comparison_available'), bool): raise ValueError('Worker result')
+        return result
+    except (ValueError, TypeError):
         return unavailable(url, 'Invalid worker result; no comparison is available.')
 
 

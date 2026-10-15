@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import (_extract_page, parse_html, crawl_site, check_urls, fetch,
-                    _guard_browser_route, overall_scores, crawl_page_browser, html_report)
+                    _guard_browser_route, overall_scores, crawl_page_browser, html_report, _crawl_site_local)
 from link_diagnostics import (analyze_links, crawl_status_cache, url_key,
                               validate_fetch_url, classify_status)
 from client_workflow import build_delivery, delivery_files
@@ -296,7 +296,7 @@ class BrowserEvidenceTests(unittest.TestCase):
 
     def test_browser_launch_failure_falls_back_and_retains_coverage(self):
         with patch('common._launch_browser',side_effect=RuntimeError('unavailable')), patch('common.crawl_page_requests',return_value=page()):
-            c = crawl_site(BASE,limit=1,prefer_browser=True)
+            c = _crawl_site_local(BASE,limit=1,prefer_browser=True)
         self.assertFalse(c['browser_used'])
         self.assertTrue(c['browser_error'])
         self.assertEqual(c['coverage']['pages_inspected'],1)

@@ -174,6 +174,8 @@ def build_delivery(url, client_name="", prepared_by="SEO Audit Suite", goal="", 
         evidence['rendering_diagnostics'] = render_result
     if crawl.get('browser_security'):
         evidence['browser_security'] = crawl['browser_security']
+    if crawl.get('browser_supervision'):
+        evidence['browser_supervision'] = crawl['browser_supervision']
     handoff = f'''# SEO client handoff
 
 Use the seo-client-delivery skill with evidence.json, issue-log.csv and keyword-map.csv.

@@ -338,3 +338,79 @@ Playwright's driver. No dependencies or security restrictions were changed.
 Scoring/default export compatibility remains verified. No real Chrome executable
 is available locally; Windows R3 and all 75 checks/18 screenshots remain pending.
 No timeout increase, GitHub operation or C2B/C3 expansion occurred.
+
+
+## V6.1.1 Phase C2B — lifecycle validation (14 October 2026 UTC)
+
+Baseline: `9439ff93d89854f6b207ad68057ae75e51fbedd2`. Isolated detached worktree;
+no commits, GitHub writes or dependency changes.
+
+- Focused lifecycle suite: 26 tests passed, including real Python worker and
+  descendant cleanup on success, crash and timeout, including detached child
+  groups that mirror Playwright Chrome launches; mocked interruption, Windows
+  Job assignment order/failure, second communicate timeout, checkpoint integrity,
+  partial links/depth/status evidence and nine-file exports.
+- Existing browser unit fixtures now target `_crawl_site_local` to retain their
+  deterministic injection; production `crawl_site` uses the supervisor. The C2B
+  Chrome harness separately tests that public API across real worker boundaries.
+- Complete regression suite: 256 tests passed (final exact run/time is recorded
+  in the review package). No tests were skipped or assertions weakened.
+- Compatibility comparison: default nine exports and twelve sitemap-enabled
+  exports byte-identical for controlled baseline inputs; fixed metadata/timestamp
+  used only by the comparator. Score ASTs and C1, sitemap, Phase A/discovery UI
+  source unchanged. Phase 3 replay policy, limits and extraction semantics unchanged.
+- Secure browser probe: blocked; 0 real-browser checks executed here. Neither
+  Chrome nor bundled Chromium could be launched under the unchanged secure policy.
+  No browser installation, insecure launch retry or public-site crawl was used.
+
+Windows acceptance requires Python 3.12, installed Google Chrome, 256 regression
+tests and 98 checks (44 existing rendering/report, 5 C1, 26 C2A, 23 C2B). Review
+22 normal desktop/mobile report screenshots (18 existing plus 4 lifecycle reports).
+The C2B checks cover rendered headings/links, alias/depth/scope/status evidence,
+hard infinite-script deadlines, browser-close hangs, Chrome worker crashes,
+interruption, Job Object tree cleanup and viewport overflow. Each count is actual;
+unexecuted checks are blocked, never passed. Windows acceptance is pending.
+
+Remaining C3 limits: no CPU/RAM/PID/egress/filesystem quotas, no container boundary,
+no guarantee against a compromised process escaping a POSIX process group or an
+OS stall. Abrupt parent death on POSIX requires an external supervisor; Windows
+Job close is automatic but not yet verified on the user's machine. The unused
+`browser_available` helper is a direct probe, not an audit execution entry point.
+Public deployment remains on hold.
+
+
+### C2B R2 — verified Windows fixture deadline ordering
+
+Windows run `20261014-153924-677c6efb` matched the original 14-file patch and
+all source checksums: 256 automated, 44 existing Chrome, 5 C1 and 26 C2A checks
+passed; C2B passed 21/23. The two failed checks were the infinite-JavaScript hard
+deadline and its tree-cleanup assertion. Actual evidence was a navigation
+TimeoutError, `queue_exhausted_with_errors`, unknown HTTP status and no abnormal
+`browser_supervision` record. This was not a demonstrated tree-cleanup failure.
+Crash and browser-close deadline cases confirmed cleanup on the same Windows run.
+
+Confirmed fixture error: every navigation used 5000 ms but the infinite-script
+worker wall deadline was 10 seconds. The inner timeout won and the crawler
+closed normally before the hard-deadline case could execute. R2 keeps the outer
+10-second deadline and cleanup waits unchanged. Only that controlled fixture
+uses the existing production-default 30000 ms navigation budget, deliberately
+longer than the outer deadline. Normal fixture navigation remains 5000 ms.
+Production navigation defaults/limits, deadlines, Job assignment, termination,
+C1/C2A policies, scoring and exports are unchanged. No implementation failure
+in termination has been established by the supplied evidence.
+
+R2 adds diagnostic evidence, not relaxed protection: actual worker/driver IDs,
+script-start marker, requested navigation budget, elapsed wall/cleanup time,
+and exact owned Windows Job membership before termination and after cleanup.
+The existing two checks now require actual script execution, correctly timed
+hard deadline and owned worker/driver membership followed by zero active Job
+processes. Membership-query failures/truncation cannot count as complete proof.
+No URLs, command lines, credentials or inherited environment are added to logs.
+Diagnostics remain outside normal application outputs; report/export fields
+and filenames remain compatible.
+
+Thirteen focused R2 regressions cover navigation-vs-wall timeout distinction,
+missing/early/late evidence, incomplete or surviving Job members, bounded Job
+queries and serializable supervisor diagnostics. Full corrected target: 269
+automated tests and the same 98 Chrome checks/22 screenshots. R2 Chrome/Windows
+acceptance remains pending; prior-version passes do not certify the R2 package.

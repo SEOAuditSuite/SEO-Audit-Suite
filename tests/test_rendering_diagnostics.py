@@ -154,23 +154,28 @@ class TransportTests(unittest.TestCase):
                 r=rd.compare_url(url); process.assert_not_called(); self.assertFalse(r['comparison_available']);self.assertNotIn('secret',str(r))
 
     def test_worker_failure_reported(self):
-        with patch.object(rd.subprocess, 'Popen') as process:
+        with patch.object(rd.subprocess, 'Popen') as process, patch('browser_supervision.WindowsJob'):
             process.return_value.communicate.return_value=('invalid',None);process.return_value.returncode=1
             self.assertFalse(rd.compare_url(BASE)['comparison_available'])
 
     def test_worker_timeout_kills_process_group(self):
-        script=Path(rd.__file__).resolve()
-        with patch.object(rd,'Path') as path, patch.object(rd.os,'name','posix'), patch.object(rd.subprocess, 'Popen') as process, patch.object(rd.os, 'killpg',create=True) as kill, patch.object(rd.signal,'SIGKILL',9,create=True):
-            path.return_value.resolve.return_value=script
+        import browser_supervision as bs
+        with patch.object(bs.os, 'name', 'posix'), patch.object(bs.subprocess, 'Popen') as process, patch.object(bs.os, 'killpg', create=True) as kill, patch.object(bs.signal, 'SIGKILL', 9, create=True), patch.object(bs, '_group_empty', return_value=True), patch.object(bs, '_host_group', return_value=None):
+            process.return_value.pid=123
             process.return_value.communicate.side_effect=[subprocess.TimeoutExpired('worker',45),('',None)]
-            r=rd.compare_url(BASE);kill.assert_called_once();self.assertFalse(r['comparison_available'])
+            result=bs.run_worker(['worker'],'{}',45)
+            kill.assert_called_once(); self.assertEqual(result.reason,'execution_deadline')
+            # A root-group mock alone cannot confirm detached browser descendants.
+            self.assertFalse(result.cleanup_confirmed)
 
     def test_windows_timeout_requests_process_tree_cleanup(self):
-        script=Path(rd.__file__).resolve()
-        with patch.object(rd,'Path') as path, patch.object(rd.os,'name','nt'), patch.object(rd.subprocess,'CREATE_NEW_PROCESS_GROUP',512,create=True), patch.object(rd.subprocess,'Popen') as process, patch.object(rd.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as kill:
-            path.return_value.resolve.return_value=script
-            process.return_value.communicate.side_effect=[subprocess.TimeoutExpired('worker',45),('',None)]
-            r=rd.compare_url(BASE);self.assertEqual(kill.call_args.args[0][0],'taskkill');self.assertFalse(r['comparison_available'])
+        import browser_supervision as bs
+        from browser_supervision import WorkerResult
+        # The platform-specific Job Object path is tested by supervisor tests.
+        with patch.object(bs, 'run_worker', return_value=WorkerResult(reason='execution_deadline', cleanup_confirmed=True)) as worker:
+            r=rd.compare_url(BASE)
+        self.assertEqual(worker.call_args.args[2],45)
+        self.assertFalse(r['comparison_available']); self.assertNotIn('cleanup could not', str(r['warnings']))
 
 
 class RouteTests(unittest.TestCase):
