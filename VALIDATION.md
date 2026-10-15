@@ -414,3 +414,41 @@ missing/early/late evidence, incomplete or surviving Job members, bounded Job
 queries and serializable supervisor diagnostics. Full corrected target: 269
 automated tests and the same 98 Chrome checks/22 screenshots. R2 Chrome/Windows
 acceptance remains pending; prior-version passes do not certify the R2 package.
+
+
+## V6.1.1 Phase C3A — local launch / worker environment validation
+
+Baseline: `faa7a38337f1217953298794baf0137da2cfe5af`. A fresh isolated detached
+worktree was used; unrelated C2B publication workspaces were preserved.
+
+Focused regression scope:
+
+- Both START-APP.bat interpreter branches bind to 127.0.0.1 and retain security
+  configuration; no forwarded arguments can silently replace the binding.
+- Explicit allowlist preserves Windows/Chrome, Python venv, temporary/cache and
+  optional Playwright runtime paths, including Windows environment-key casing.
+- Synthetic API keys, proxy values, tokens, passwords and Python/Node hooks are
+  excluded from real child workers; fixed Python runtime settings are enforced.
+- Parent environment and PageSpeed key remain intact. PageSpeed AppTest uses a
+  mocked Google response and confirms the parent API request retains its key;
+  no live API call, paid service or real credential is used.
+- Real supervised workers start in the same venv, import project/browser modules
+  with installed dependencies, and retain cleanup/unavailable failure behavior.
+
+The review package records exact executed totals, timings, source hashes and
+compatibility results. The full suite includes existing C1/C2A/C2B lifecycle
+regressions. Windows Chrome validation must use the exact patched snapshot and
+record the same 98 browser checks and 22 viewport screenshots, plus its complete
+automated suite. Windows acceptance is pending until actually executed.
+
+Manual Windows launch acceptance: run START-APP.bat from the isolated validation
+project, inspect the running app's listening socket with Get-NetTCPConnection
+(or netstat), and verify it listens only at 127.0.0.1 on the chosen port. Retain
+that evidence without disabling CORS/XSRF. A successful local page alone does not
+prove lack of LAN exposure. Native BAT execution cannot be certified on Linux.
+
+No SEO scoring, default export names, dependencies, existing C1/C2A network
+policy, C2B Job/lifecycle limits, firewall rules, Windows accounts or ACLs were
+changed. Environment filtering does not prevent same-user filesystem access,
+OS-level egress, resource exhaustion or a compromised interpreter/browser. C3B
+and C3C remain separately scoped; no public deployment readiness is claimed.
