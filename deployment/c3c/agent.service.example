@@ -1,0 +1,22 @@
+[Unit]
+Description=SEO external bounded audit agent
+After=docker.service
+[Service]
+User=seo-supervisor
+Group=seo-control
+WorkingDirectory=/opt/seo-audit
+EnvironmentFile=/etc/seo-control/images.conf
+ExecStart=/opt/seo-audit/.venv/bin/python -m deployment.c3c.agent --database /var/lib/seo-control/queue.sqlite --keys /etc/seo-control/owners.json --state /var/lib/seo-supervisor --worker-image ${WORKER_IMAGE_ID} --broker-image ${BROKER_IMAGE_ID}
+UMask=0007
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/seo-control /var/lib/seo-supervisor
+ReadOnlyPaths=/etc/seo-control
+MemoryMax=256M
+TasksMax=32
+CPUQuota=25%
+Restart=on-failure
+RestartSec=5s
+# Separate reaper remains mandatory. Runtime authority belongs only to this account.

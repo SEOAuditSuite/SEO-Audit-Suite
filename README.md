@@ -441,3 +441,159 @@ whole-operation resource controls, and C3C firewall/container/public infrastruct
 are not implemented. Public deployment remains on hold. Native Windows launch
 and Chrome acceptance must be recorded separately; local automated tests do not
 certify Windows Firewall, ACL or container isolation.
+
+## Phase C3B — owned Windows worker resource containment (development)
+
+Baseline: `36c98ecd4537cc421e0ffe08321f62a10b0bed36`. C3A local-only launch and
+worker secret filtering, C1/C2A transport/browser policies, and C2B deadlines and
+owned-tree cleanup remain unchanged. This is for attended local Windows use,
+not public deployment or whole-application containment.
+
+### Starting profile and configuration
+
+Each new normal-crawl or Phase 3 worker receives a Windows Job **before its
+stdin gate is released**. The Job retains kill-on-close, prohibits breakaway,
+and sets/readbacks all three controls. Failed setup/readback/CPU support stops
+that worker; there is no unrestricted retry.
+
+| Parent environment variable | Starting default | Accepted range | Meaning |
+|---|---:|---:|---|
+| `SEO_JOB_MAX_PROCESSES` | 64 | 2–256 | Simultaneously active processes in one owned Job, including Python/venv redirectors, Node and Chrome descendants |
+| `SEO_JOB_MEMORY_MIB` | 4096 | 64–32768 | Aggregate **committed virtual memory** in one Job, in MiB |
+| `SEO_JOB_CPU_PERCENT` | 80 | 1–100 | Hard CPU scheduling-rate cap, not cumulative CPU seconds or a per-core reservation |
+
+Defaults are conservative **starting targets**, not measured suitability for
+every machine or website. No memory is reserved by choosing a ceiling. Four GiB
+allows headroom for Python, Node and several Chrome processes, while 64 processes
+avoids a tiny cap that routinely prevents Chromium startup. These are not promises
+of supporting every JavaScript-heavy site. On small-memory machines the operator
+must select a lower budget with headroom for Windows, Chrome and the parent app;
+raising a cap increases risk. Calibrate on authorized representative JS-heavy
+sites, monitor returned Job peak commit and process evidence, and retain partial
+render warnings. The controlled fixtures do not establish client-site calibration.
+
+Set variables in the terminal launching the parent application; only ASCII
+integer values are accepted. For example (choose values for your actual machine):
+
+```powershell
+$env:SEO_JOB_MAX_PROCESSES = '64'
+$env:SEO_JOB_MEMORY_MIB = '4096'
+$env:SEO_JOB_CPU_PERCENT = '80'
+.\START-APP.bat
+```
+
+Do not change these values while an audit is running. They apply to new Jobs;
+worker environments do not inherit the configuration or API credentials. Invalid
+configuration stops before a worker starts. CPU hard-rate support requires Windows
+8+/supported Jobs; nested Job, Remote Desktop/DFSS or OS policy restrictions can
+cause fail-closed startup. CPU rate is relative to parent Job quotas if present.
+Committed-memory limits constrain commit charge, **not physical RAM**, working
+set, disk, GPU memory or the parent process. A CPU cap throttles and can increase
+wall time; the existing 1–600 second worker deadline and bounded cleanup still
+apply unchanged.
+
+A completion-port monitor records observed process/memory-limit events, terminates
+only that owned Job, and rejects its output. Monitor failure also terminates and
+invalidates the result. Crawl checkpoints retain observed completed pages and
+mark incomplete coverage; in-flight HTTP status is unknown. Phase 3 returns no
+comparison after resource failure. Memory refusal does not always kill a process,
+and completion-port notifications are advisory and not guaranteed by Windows.
+Absence of an event is not proof of absence of resource pressure; generic crashes,
+unknown fetches and incomplete rendering still require review. Kernel caps do not
+depend on notification delivery. Do not interpret an exhausted audit as proof of
+missing content, broken links or an orphan page.
+
+### Work outside the Job boundary
+
+Only the owned supervised worker tree is capped. Parent Streamlit startup, upload
+buffering, explicit HTTP-only crawling, standalone HTTP checks, sitemap inventory,
+CSV/export assembly, scoring, PDF/HTML generation and ZIP generation run outside
+this Job. Existing per-request/crawl/sitemap budgets remain; no new whole-operation
+CPU/RAM quota is claimed. Keyword CSV parsing now rejects inputs over **5 MiB**
+before decoding/parsing and over **10000 data records** (including empty-keyword
+records), without returning a misleading truncated keyword map. UI errors retain
+the previous saved run. Normal-size CSV semantics and default exports are unchanged.
+The upload may already have been buffered by Streamlit before parser rejection.
+
+Run one audit at a time in a trusted non-admin Windows account. Concurrent Jobs
+can each consume their own full budget; there is no aggregate admission control.
+Parent pipe/result buffering and OS stalls are not covered by an independent
+watchdog. Reliable whole-operation process isolation would require a separate
+controlled follow-up, not wrapping Streamlit in a Job that could break reports
+and credentials. Non-Windows hosts retain prior lifecycle cleanup but do not gain
+these native resource caps. C3C firewall/network, filesystem/account isolation and
+public deployment infrastructure remain pending. Keep public deployment on hold.
+
+### Native acceptance
+
+Unit API fakes verify wiring only. The separate Windows package must demonstrate
+real process-creation refusal, committed-memory refusal, CPU throttling against
+a busy reference, empty owned Jobs after cleanup, unrelated-process survival,
+all existing 98 Chrome checks and 22 screenshots. An unavailable, inconclusive or
+failed native test blocks acceptance. Native Windows acceptance is pending.
+
+Microsoft references:
+- https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information
+- https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information
+- https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information
+- https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_associate_completion_port
+
+### C3B R2 — low-resource validation and interrupted diagnostics
+
+R1 Windows run `20261016-185731-109f7a02` logged six native passes, then a parent
+JSONDecodeError before memory checks were recorded. The parent read a marker file,
+not subprocess stdout. Direct marker overwrites could truncate the live JSON
+before the resource monitor terminated the worker; parent parsing was unguarded.
+This failure mode is deterministic in regression tests. The supplied two files
+contain no raw marker, traceback or memory-worker record, so historical exact
+bytes, termination cause and host-memory pressure are not independently proved.
+No memory/CPU native pass can be inferred from the six process-related passes.
+
+R2 writes markers through flushed atomic replacement. Missing/empty/malformed
+markers remain unknown with byte count/hash and never erase supervisor reason,
+return code or cleanup evidence. Native check failure stops subsequent fixtures.
+Tracebacks, host samples and per-stage owned-Job cleanup are saved automatically.
+The resource-enforcement implementation and production defaults are unchanged.
+
+**Six-GB Windows machines:** 4096 MiB is not an appropriate unattended default
+recommendation for this host class. It is a commit ceiling, not a reservation,
+but permits too much aggregate commit alongside Windows, user Chrome and the
+uncapped parent app. R2 deliberately does not silently change that production
+configuration. The validation launcher instead explicitly selects **32 processes,
+1024 MiB commit and 25% CPU** for regression/Chrome workers, without changing
+scores, transport/browser restrictions or worker deadlines. This stricter profile
+is provisional and must be calibrated for real client sites; some sites may
+exceed it and require an honest incomplete result. Passing controlled tests does
+not prove that the 4096-MiB default or every client site is suitable on 6 GB RAM.
+
+Validation stages run sequentially at below-normal Windows priority. A gated,
+kill-on-close validation-only Job owns each stage tree (including nested production
+worker Jobs), with 64-process / 1536-MiB aggregate commit ceilings and no parent CPU
+cap that could distort native CPU probes.
+This is validation-harness containment only, not whole-application containment.
+Numerical library thread counts are one; native stress cases use no multi-core
+saturation: at most four sleeping process-limit Job members, a 128-MiB fixture
+commit cap with a single refused 160-MiB reserve+commit request (no page touching),
+and one busy thread for two-second CPU windows under 10% reference / 2% test caps.
+The original Windows API readback, actual refusal/notification, measured-throttling,
+owned cleanup and unrelated-process assertions remain required. Sixteen native
+checks are required; mock-only results never certify enforcement.
+
+Preflight requires at least **1536 MiB available physical memory**, **2048 MiB
+available commit** and measured CPU <=60%, not merely six GB installed RAM.
+Unsupported telemetry or insufficient resources yields **NOT VERIFIED** before
+work starts. During stages, one-second samples stop and clean the owned tree if
+available physical memory falls below 768 MiB, available commit falls below
+1024 MiB, or CPU exceeds 85% for three consecutive samples. These are conservative
+validation stop thresholds, not a guarantee against transient stutter, paging,
+OS stalls or unrelated software. Close other applications manually; the package
+never kills personal Chrome processes. CPU fixtures on >8 logical processors
+stop NOT VERIFIED rather than increasing load. Short idle cooldowns do not extend
+production worker deadlines. Dependency installation uses wheels only; no heavy
+source builds. C3C and regular whole-app safeguards remain outside this patch.
+
+Use the corrected R2 package only. Do not rerun R1 CPU stress on this older host.
+For any separately authorized app smoke test, set the low-resource environment
+explicitly in the terminal before START-APP.bat; a later Explorer double-click
+does not inherit validation-launcher variables. Production operating suitability
+and client-site calibration remain separate acceptance decisions.

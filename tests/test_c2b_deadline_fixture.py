@@ -69,6 +69,7 @@ class JobDiagnosticTests(unittest.TestCase):
         class Accounting(ctypes.Structure):
             _fields_=[('Active',ctypes.c_ulong)]
         job=bs.WindowsJob.__new__(bs.WindowsJob);job.ctypes=ctypes;job.Accounting=Accounting;job.handle=123
+        job.resource_snapshot=Mock(return_value=dict(verified=False))  # Membership-only unit fixture; no native-cap claim.
         def query(handle,kind,ptr,size,length):
             if fail:return 0
             obj=ptr._obj

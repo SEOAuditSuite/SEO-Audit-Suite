@@ -1,0 +1,8 @@
+{
+  "python": "3.12",
+  "architecture": "linux/amd64",
+  "playwright": "1.64.0",
+  "packages": 41,
+  "base_image": "REQUIRED: reviewed Playwright Python image matching version, pinned by digest",
+  "native_build_status": "NOT VERIFIED"
+}

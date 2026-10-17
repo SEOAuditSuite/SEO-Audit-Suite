@@ -452,3 +452,74 @@ policy, C2B Job/lifecycle limits, firewall rules, Windows accounts or ACLs were
 changed. Environment filtering does not prevent same-user filesystem access,
 OS-level egress, resource exhaustion or a compromised interpreter/browser. C3B
 and C3C remain separately scoped; no public deployment readiness is claimed.
+
+## Phase C3B — resource-containment acceptance
+
+Baseline: `36c98ecd4537cc421e0ffe08321f62a10b0bed36`. Exact local test totals,
+source/patch checksums and package identity are in the C3B review package.
+
+`tests/test_worker_resources.py` covers policy bounds, fail-closed configuration,
+CPU/memory/process-cap setup and readback, no breakaway, API failure cleanup,
+notification termination, output rejection, partial checkpoint/unknown HTTP
+status, unavailable Phase 3 evidence, and bounded CSV inputs. API fakes are
+explicitly not native Windows enforcement. Existing cancellation, crashes,
+timeouts, worker environment, scoring and export regressions remain required.
+The old membership-only Job fixture now stubs resource snapshots independently;
+its PID/truncation/query assertions remain unchanged.
+
+Windows acceptance uses Python 3.12 and installed Chrome in a new isolated
+project, not an original local project. `tests/windows_c3b_validation.py` must
+produce **16/16 actual native checks**: default-cap readback/start/cleanup,
+real process refusal at four processes, real refused commit at 128 MiB, measured
+CPU throttling at 2% against a 10% capped reference, owned Job cleanup and survival
+of an unrelated harmless sentinel. Tight fixture limits are not app defaults.
+Every stress worker uses the production supervisor with a 15-second hard deadline;
+existing C2B 10-second infinite-script and cancellation checks remain unchanged.
+A high-core-count machine or heavy competing workload can make CPU calibration
+inconclusive; that is a failed acceptance gate, not a reason to skip or label it
+passed. Preserve raw accounting, markers, requested/readback caps and cleanup
+membership snapshots. Do not infer physical-RAM or whole-app containment.
+
+Also require the complete regression suite, 98 real Chrome checks (44 existing,
+5 C1, 26 C2A, 23 C2B) under the explicit low-resource validation profile and review all 22 desktop/mobile
+screenshots. These validate controlled fixtures, not every real client site.
+Calibrate limits separately for authorized representative JavaScript-heavy client
+sites on the operator's hardware before regular use. Record selected caps and
+incomplete evidence; never relax C1/C2 restrictions or deadlines to hide a failure.
+
+The Windows launcher writes actual results, counts, source hashes, resource
+configuration and checksummed evidence. Its final automated status still requires
+visual acceptance. No historical pass certifies this C3B patch. Linux/Work cannot
+verify Windows Job ABI, enforcement, OS accounting, nested Jobs, DFSS, firewall,
+ACLs, native BAT execution or Chrome behavior on the operator's machine.
+Whole-operation resource caps, concurrent-audit admission control, independent
+watchdog, OS egress/filesystem isolation and C3C infrastructure remain unresolved.
+
+### C3B R2 acceptance — guarded low-resource mode
+
+R1 six native passes are historical partial evidence, not R2 acceptance. The
+corrected package records actual run ID, exact aggregate/delta patches and source
+hashes, measured host availability/CPU, marker states, per-fixture termination and
+per-stage lifecycle-Job cleanup. It never substitutes a missing marker with success
+or labels skipped/inconclusive checks passed. All original deadline/security
+assertions remain. Native Windows stress fixtures were not executed on Linux.
+
+Required R2 sequence: available-memory/commit/CPU preflight; serial full regression;
+16 actual native checks with tight fixture budgets; 98 Chrome checks under the
+explicit 32-process/1024-MiB/25% validation profile; review 22 screenshots. Resource
+pressure, failed native measurement, unavailable telemetry, unsupported nested
+Jobs, cleanup uncertainty or operator cancellation stop the affected stage and
+produce NOT VERIFIED plus automatic evidence. No automatic retries or threshold
+bypass are provided. Ctrl+C requests cleanup and evidence packaging; force-closing
+the console cannot guarantee the final ZIP was written. Kill-on-close stage Jobs
+provide a termination backstop, not a guarantee against OS failure.
+
+Deterministic R2 regressions cover interrupted atomic replacement, legacy empty-file
+reproduction, invalid/missing marker evidence, preserving termination diagnostics,
+host thresholds, CPU accounting and pressure persistence/recovery, bounded single-
+thread fixture design, validation-stage assignment failure and lifecycle cleanup.
+Windows API fakes are wiring tests only. The supplied failed logs do not include
+full source provenance or memory-worker evidence; do not claim that historical
+memory/CPU enforcement or RAM shortage was verified. Real R2 Windows results are
+pending. Default production resource settings remain unchanged and are not
+certified for a 6-GB machine by these tests.

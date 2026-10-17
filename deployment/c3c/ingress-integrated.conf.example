@@ -1,0 +1,31 @@
+# Reviewed integration template; install only on an approved isolated test host.
+# Dedicated mTLS CA + per-owner signed requests are both required.
+limit_req_zone $ssl_client_fingerprint zone=seo_client:1m rate=2r/s;
+limit_conn_zone $ssl_client_fingerprint zone=seo_connections:1m;
+upstream seo_private_controller { server unix:/run/seo-controller/api.sock; }
+server {
+    listen 443 ssl;
+    ssl_certificate /run/ingress-secrets/server.crt;
+    ssl_certificate_key /run/ingress-secrets/server.key;
+    ssl_client_certificate /run/ingress-secrets/client-ca.crt;
+    ssl_verify_client on;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 16k;
+    client_body_timeout 5s;
+    limit_req zone=seo_client burst=2 nodelay;
+    limit_req_status 429;
+    limit_conn seo_connections 2;
+    add_header X-Content-Type-Options nosniff always;
+    location /v1/jobs {
+        proxy_pass http://seo_private_controller;
+        proxy_http_version 1.0;
+        proxy_set_header Connection close;
+        proxy_set_header Upgrade "";
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 10s;
+        proxy_send_timeout 5s;
+        proxy_request_buffering on;
+        proxy_buffering off;
+    }
+    location / { return 404; }
+}

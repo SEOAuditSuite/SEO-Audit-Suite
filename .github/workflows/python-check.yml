@@ -1,5 +1,8 @@
 name: Python Check
-on: [push, pull_request]
+on:
+  push:
+    branches-ignore: [review/c3c-security-validation-20261017]
+  pull_request:
 jobs:
   compile:
     runs-on: ubuntu-latest

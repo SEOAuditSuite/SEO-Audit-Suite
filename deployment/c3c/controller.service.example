@@ -1,0 +1,21 @@
+[Unit]
+Description=SEO private authenticated controller (no runtime authority)
+After=local-fs.target
+[Service]
+User=seo-controller
+Group=seo-control
+WorkingDirectory=/opt/seo-audit
+ExecStart=/opt/seo-audit/.venv/bin/python -m deployment.c3c.controller --database /var/lib/seo-control/queue.sqlite --keys /etc/seo-control/owners.json --socket /run/seo-controller/api.sock
+UMask=0007
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/seo-control /run/seo-controller
+ReadOnlyPaths=/etc/seo-control
+MemoryMax=256M
+TasksMax=16
+CPUQuota=25%
+Restart=on-failure
+RestartSec=5s
+# Provision quota-limited state directory/ACLs independently. Do not grant docker group.

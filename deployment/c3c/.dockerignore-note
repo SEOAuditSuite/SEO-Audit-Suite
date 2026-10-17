@@ -1,0 +1,3 @@
+Build context MUST use the repository-root .dockerignore.c3c content as .dockerignore
+in a temporary build directory. Never send the original workspace or secrets to a
+remote builder. See README.md. No Docker build was executed in development.

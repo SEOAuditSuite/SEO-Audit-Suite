@@ -1,0 +1,18 @@
+[Unit]
+Description=SEO C3C expired audit job reaper
+After=docker.service
+[Service]
+Type=oneshot
+User=seo-supervisor
+WorkingDirectory=/opt/seo-audit
+ExecStart=/opt/seo-audit/.venv/bin/python -m deployment.c3c.reaper
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=256M
+TasksMax=32
+CPUQuota=25%
+TimeoutStartSec=70
+# Runtime access is privileged host management capability. Grant only to this
+# dedicated account; never to gateway, controller or browser job containers.

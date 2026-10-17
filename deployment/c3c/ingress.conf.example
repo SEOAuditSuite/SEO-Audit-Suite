@@ -1,0 +1,20 @@
+# Integration template; no controller HTTP service is shipped/enabled by this patch.
+# mTLS client CA must be dedicated. Authenticate WebSocket upgrades too if a
+# future controller supports them. Never proxy the existing raw Streamlit port.
+limit_req_zone $ssl_client_fingerprint zone=per_client:1m rate=2r/s;
+limit_conn_zone $ssl_client_fingerprint zone=per_client_connections:1m;
+server {
+    listen 443 ssl;
+    ssl_certificate /run/ingress-secrets/server.crt;
+    ssl_certificate_key /run/ingress-secrets/server.key;
+    ssl_client_certificate /run/ingress-secrets/client-ca.crt;
+    ssl_verify_client on;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 16k;
+    client_body_timeout 10s;
+    limit_req zone=per_client burst=2 nodelay;
+    limit_req_status 429;
+    limit_conn per_client_connections 2;
+    add_header X-Content-Type-Options nosniff always;
+    location / { return 503; } # Fail closed until authenticated controller is accepted.
+}

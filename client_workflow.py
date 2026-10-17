@@ -39,13 +39,24 @@ def csv_bytes(rows, fields=None):
     return stream.getvalue().encode("utf-8-sig")
 
 
+KEYWORD_CSV_BYTES = 5 * 1024 * 1024
+KEYWORD_CSV_ROWS = 10000
+
+
 def parse_keyword_csv(data):
+    # An input bound, not a process memory quota; reject before parsing/decoding.
+    if not isinstance(data,(str,bytes)):
+        raise ValueError('Keyword CSV must be text or bytes.')
+    if len(data) > KEYWORD_CSV_BYTES or (isinstance(data,str) and len(data.encode('utf-8')) > KEYWORD_CSV_BYTES):
+        raise ValueError('Keyword CSV exceeds the 5 MiB input limit. Split the file and retry.')
     text = data.decode("utf-8-sig") if isinstance(data, bytes) else data
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames or "Keyword" not in reader.fieldnames:
         raise ValueError("Keyword CSV must contain a 'Keyword' column. Use the downloadable template.")
     rows = []
-    for row in reader:
+    for row_number,row in enumerate(reader,1):
+        if row_number > KEYWORD_CSV_ROWS:
+            raise ValueError('Keyword CSV exceeds the 10000-row limit. Split the file and retry.')
         if not (row.get("Keyword") or "").strip():
             continue
         item = {key: (row.get(key) or "").strip() for key in KEYWORD_COLUMNS}
