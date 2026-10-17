@@ -1,4 +1,4 @@
-name: C3C Single Security Validation
+name: C3C Read-Only Host Capability Probe
 on:
   push:
     branches: [review/c3c-security-validation-20261017]
@@ -8,25 +8,176 @@ concurrency:
   group: c3c-single-security-validation
   cancel-in-progress: false
 jobs:
-  validate:
-    if: github.run_attempt == 1 && github.event.deleted == false
+  capability:
+    if: github.run_attempt == 1 && github.event.deleted == false && github.event.repository.private == false && github.event.before == '0df69f4b193ada03d655b9e0fc6129e605c918e9'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      PIP_NO_CACHE_DIR: '1'
-      PIP_DISABLE_PIP_VERSION_CHECK: '1'
-      PYTHONDONTWRITEBYTECODE: '1'
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 5
+          fetch-depth: 6
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-      - name: Verify publication and workflow safety
+      - name: Inspect host capabilities without loading policies or starting containers
+        shell: bash
         run: |
-          python -m unittest discover -s validation/c3c -p test_preflight.py -v
-          python validation/c3c/run.py --safety
-      - name: Run bounded native validation and print evidence
-        run: timeout --signal=TERM --kill-after=30s 1050s python -u validation/c3c/run.py --execute
+          timeout --signal=TERM --kill-after=5s 90s sudo -n -- /usr/bin/python3 -I - "$GITHUB_WORKSPACE" "$GITHUB_EVENT_PATH" "$GITHUB_REF" "$GITHUB_RUN_ATTEMPT" "${{ runner.environment }}" <<'C3C_PY'
+          """Read-only GitHub-hosted VM capability probe. No containers or policies are loaded."""
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          
+          PARENT='0df69f4b193ada03d655b9e0fc6129e605c918e9'
+          BASE='36c98ecd4537cc421e0ffe08321f62a10b0bed36'
+          REPO='SEOAuditSuite/SEO-Audit-Suite'
+          BRANCH='refs/heads/review/c3c-security-validation-20261017'
+          WORKFLOW='.github/workflows/c3c-security-validation.yml'
+          AA=Path('/sys/kernel/security/apparmor')
+          PROFILE='c3c-chromium-userns-review'
+          POLICY_SHA='d0f68ac2ab130b39520e9ac71022196a9d21805319765fc85cbd3b5163b48241'
+          POLICY_SOURCE='# REVIEW PROPOSAL ONLY: not loaded or attached by this repository.\nabi <abi/4.0>,\n#include <tunables/global>\n\nprofile c3c-chromium-userns-review flags=(attach_disconnected,mediate_deleted) {\n  #include <abstractions/base>\n  userns,\n\n  network,\n  capability,\n  file,\n  umount,\n  # Host (privileged) processes may send signals to container processes.\n  signal (receive) peer=unconfined,\n  # runc may send signals to container processes (for "docker stop").\n  signal (receive) peer=runc,\n  # crun may send signals to container processes (for "docker stop" when used with crun OCI runtime).\n  signal (receive) peer=crun,\n  # dockerd may send signals to container processes (for "docker kill").\n  signal (receive) peer=unconfined,\n  # Container processes may send signals amongst themselves.\n  signal (send,receive) peer=c3c-chromium-userns-review,\n\n  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)\n  # deny write to files not in /proc/<number>/** or /proc/sys/**\n  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9/]*}/** w,\n  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)\n  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/\n  deny @{PROC}/sysrq-trigger rwklx,\n  deny @{PROC}/kcore rwklx,\n\n  deny mount,\n\n  deny /sys/[^f]*/** wklx,\n  deny /sys/f[^s]*/** wklx,\n  deny /sys/fs/[^c]*/** wklx,\n  deny /sys/fs/c[^g]*/** wklx,\n  deny /sys/fs/cg[^r]*/** wklx,\n  deny /sys/firmware/** rwklx,\n  deny /sys/devices/virtual/powercap/** rwklx,\n  deny /sys/kernel/security/** rwklx,\n\n  # suppress ptrace denials when using \'docker ps\' or using \'ps\' inside a container\n  ptrace (trace,read,tracedby,readby) peer=c3c-chromium-userns-review,\n}\n'
+          
+          
+          def text(path,limit=65536):
+              with Path(path).open('rb') as stream:value=stream.read(limit+1)
+              if len(value)>limit:raise RuntimeError('Read bound exceeded')
+              return value.decode().strip()
+          
+          
+          def allowed(cmd):
+              if cmd==['docker','--host','unix:///var/run/docker.sock','info','--format','{{json .}}']:return True
+              if cmd[0:2]==['git','-C'] and len(cmd)>5 and cmd[3]=='-c' and cmd[4]=='safe.directory='+cmd[2]:
+                  return cmd[5:] in [
+                      ['rev-parse','HEAD^'],['diff','--name-only','HEAD^','HEAD'],
+                      ['merge-base','--is-ancestor',BASE,'HEAD'],
+                      ['ls-remote','https://github.com/'+REPO+'.git','refs/heads/main']]
+              if cmd and cmd[0] in ('/usr/sbin/apparmor_parser','/sbin/apparmor_parser'):
+                  if cmd[1:]==['--config-file','/dev/null','--version']:return True
+                  prefix=['--config-file','/dev/null','--skip-kernel-load','--skip-cache','--Werror','--jobs','1','--max-jobs','1','--stdout']
+                  return len(cmd)==len(prefix)+2 and cmd[1:-1]==prefix
+              return False
+          
+          
+          def execute(cmd,limit=65536):
+              if not allowed(cmd):raise RuntimeError('Non-read-only command rejected')
+              env=dict(PATH='/usr/sbin:/usr/bin:/sbin:/bin',LC_ALL='C',HOME='/nonexistent',GIT_CONFIG_NOSYSTEM='1',GIT_CONFIG_GLOBAL='/dev/null',GIT_TERMINAL_PROMPT='0')
+              with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
+                  result=subprocess.run(cmd,stdout=out,stderr=err,env=env,timeout=10,check=False)
+                  out.seek(0);data=out.read(limit+1)
+              if result.returncode:raise RuntimeError('Read-only '+Path(cmd[0]).name+' command exit '+str(result.returncode))
+              if len(data)>limit:raise RuntimeError('Command output bound exceeded')
+              return data
+          
+          
+          def lineage(root,event_file,ref,attempt,environment):
+              if environment!='github-hosted' or ref!=BRANCH or attempt!='1':raise RuntimeError('Single standard hosted review-branch attempt required')
+              event=json.loads(text(event_file))
+              if event['repository']['full_name']!=REPO or event['repository']['private'] is not False or event['before']!=PARENT:raise RuntimeError('Repository/free-eligibility/publication guard failed')
+              root=str(Path(root).resolve())
+              def git(*args):return execute(['git','-C',root,'-c','safe.directory='+root,*args]).decode().strip()
+              if git('rev-parse','HEAD^')!=PARENT or git('diff','--name-only','HEAD^','HEAD')!=WORKFLOW:raise RuntimeError('Expected one-file workflow publication only')
+              git('merge-base','--is-ancestor',BASE,'HEAD')
+              if git('ls-remote','https://github.com/'+REPO+'.git','refs/heads/main').split()[0]!=BASE:raise RuntimeError('Current remote main baseline changed')
+          
+          
+          def assess():
+              checks={};evidence={}
+              def check(name,operation):
+                  try:evidence[name]=operation();checks[name]='PASS'
+                  except (OSError,ValueError,KeyError,RuntimeError,subprocess.SubprocessError) as exc:
+                      checks[name]='NOT VERIFIED'
+                      evidence[name]=dict(error=type(exc).__name__,errno=getattr(exc,'errno',None),detail=str(exc)[:200] if isinstance(exc,RuntimeError) else 'Required interface missing or unreadable')
+              def runtime():
+                  if sys.version_info[:2]!=(3,12) or os.uname().machine!='x86_64' or os.geteuid()!=0:raise RuntimeError('System Python 3.12, amd64 and privileged read-only host inspection required')
+                  return dict(python=sys.version.split()[0],kernel=os.uname().release,role='host metadata inspection only; no root browser/container')
+              check('inspection_runtime',runtime)
+              def docker():
+                  d=json.loads(execute(['docker','--host','unix:///var/run/docker.sock','info','--format','{{json .}}']))
+                  result={k:d.get(k) for k in ('ServerVersion','OSType','Architecture','CgroupVersion','SecurityOptions')}
+                  if d.get('ServerVersion')!='28.0.4' or d.get('OSType')!='linux' or d.get('Architecture') not in ('amd64','x86_64') or d.get('CgroupVersion')!='2':
+                      evidence['observed_docker']=result;raise RuntimeError('Docker version/platform/cgroup differs; no substitution allowed')
+                  opts=d.get('SecurityOptions',[])
+                  if 'name=apparmor' not in opts or 'name=seccomp,profile=builtin' not in opts or any('rootless' in x or 'userns' in x for x in opts):raise RuntimeError('Unreviewed global Docker defaults')
+                  return result
+              check('reviewed_docker_defaults',docker)
+              def cgroups():
+                  controllers=set(text('/sys/fs/cgroup/cgroup.controllers',1024).split())
+                  if not {'cpu','memory','pids'}<=controllers:raise RuntimeError('Required controllers unavailable')
+                  return sorted(controllers)
+              check('cgroup_v2_controllers',cgroups)
+              def features():
+                  if text('/sys/module/apparmor/parameters/enabled',32)!='Y' or 'userns_create' not in text(AA/'features/namespaces/mask',256).split():raise RuntimeError('AppArmor user namespace mediation unavailable')
+                  return dict(enabled=True,userns_mediation=True)
+              check('apparmor_userns_features',features)
+              def namespaces():
+                  result={p:text('/proc/sys/'+p,128) for p in ('user/max_user_namespaces','kernel/unprivileged_userns_clone','kernel/apparmor_restrict_unprivileged_userns')}
+                  if int(result['user/max_user_namespaces'])<=0 or result['kernel/unprivileged_userns_clone']!='1' or result['kernel/apparmor_restrict_unprivileged_userns']!='1':
+                      evidence['observed_namespace_settings']=result;raise RuntimeError('Namespace configuration differs; no sysctl changes allowed')
+                  return result
+              check('namespace_restrictions',namespaces)
+              def compiler():
+                  parser=next((str(p) for p in (Path('/usr/sbin/apparmor_parser'),Path('/sbin/apparmor_parser')) if p.is_file()),None)
+                  if parser is None:raise RuntimeError('System AppArmor parser unavailable; no installation allowed')
+                  stat=Path(parser).stat()
+                  if stat.st_uid!=0 or stat.st_mode&0o022:raise RuntimeError('Untrusted system parser permissions')
+                  version=execute([parser,'--config-file','/dev/null','--version']).decode()
+                  if not re.search(r'version\s+([4-9]|[1-9][0-9]+)\.',version) or not Path('/etc/apparmor.d/abi/4.0').is_file():raise RuntimeError('AppArmor 4 parser/ABI imports unavailable')
+                  source=POLICY_SOURCE.encode()
+                  if hashlib.sha256(source).hexdigest()!=POLICY_SHA:raise RuntimeError('Embedded candidate policy identity mismatch')
+                  with tempfile.TemporaryDirectory(prefix='c3c-capability-') as tmp:
+                      profile=Path(tmp)/'candidate.apparmor';profile.write_bytes(source)
+                      binary=execute([parser,'--config-file','/dev/null','--skip-kernel-load','--skip-cache','--Werror','--jobs','1','--max-jobs','1','--stdout',str(profile)],4*1024*1024)
+                  if not binary:raise RuntimeError('Empty AppArmor compilation result')
+                  return dict(source_sha256=POLICY_SHA,binary_sha256=hashlib.sha256(binary).hexdigest(),scope='Compilation against actual host features/imports only; kernel not loaded')
+              check('exact_policy_host_compilation',compiler)
+              def profiles():
+                  examples=0;named=None;default=None
+                  entries=[]
+                  for i,p in enumerate((AA/'policy/profiles').iterdir()):
+                      if i>=2048:raise RuntimeError('Profile inventory bound exceeded')
+                      entries.append(p)
+                  for p in entries:
+                      if not p.is_dir():continue
+                      name=text(p/'name',512);mode=text(p/'mode',64)
+                      try:digest=text(p/'raw_sha256',128)
+                      except OSError:continue
+                      if re.fullmatch('[a-f0-9]{64}',digest):
+                          examples+=1
+                          if name==PROFILE:named=dict(mode=mode,binary_sha256=digest)
+                          if name=='docker-default':default=dict(mode=mode,binary_sha256=digest)
+                  evidence['named_profile']=named or dict(status='NOT VERIFIED',reason='Not preloaded; expected on a fresh VM; provisioning is a separate decision')
+                  evidence['docker_default_profile']=default or dict(status='NOT VERIFIED',reason='Not loaded/exported; this probe creates no fixture')
+                  if not examples:raise RuntimeError('Readable exported raw policy SHA256 interface not demonstrated')
+                  if named and (named['mode']!='enforce' or named['binary_sha256']!=evidence.get('exact_policy_host_compilation',{}).get('binary_sha256')):raise RuntimeError('Existing named profile identity/enforcement conflict; never replace it')
+                  return dict(readable_export_examples=examples,scope='Existing profiles only; unrelated profile names are not logged')
+              check('effective_policy_hash_export',profiles)
+              def authority():
+                  fields=dict(line.split(':',1) for line in text('/proc/self/status').splitlines() if ':' in line)
+                  has_cap=bool(int(fields['CapEff'].strip(),16)&(1<<33))
+                  accessible=os.access(AA/'.load',os.W_OK)
+                  if not has_cap or not accessible:raise RuntimeError('Scoped policy-administration authority not demonstrated by metadata')
+                  return dict(cap_mac_admin_present=True,load_node_dac_access=True,scope='Metadata only; no write-open, load operation or LSM permission test')
+              check('potential_scoped_load_authority',authority)
+              return dict(probe_status='PASS' if all(v=='PASS' for v in checks.values()) else 'NOT VERIFIED',checks=checks,evidence=evidence,
+                  native_validation='NOT VERIFIED',policy_load_and_attachment='NOT VERIFIED',
+                  decision='Structural evidence only. A fresh VM need not contain the custom profile. No browser validation is authorized or launched.')
+          
+          
+          def main(argv):
+              try:
+                  if len(argv)!=6:raise RuntimeError('Expected workflow-controlled arguments')
+                  lineage(*argv[1:]);result=assess()
+              except (OSError,ValueError,KeyError,RuntimeError,subprocess.SubprocessError) as exc:
+                  result=dict(probe_status='NOT VERIFIED',gate_error=type(exc).__name__,detail=str(exc)[:200],native_validation='NOT VERIFIED')
+              output=json.dumps(result,sort_keys=True)
+              if len(output)>16384:output=json.dumps(dict(probe_status='NOT VERIFIED',error='Evidence bound exceeded'))
+              print('C3C_HOST_CAPABILITY '+output,flush=True)
+              return 0 if result['probe_status']=='PASS' else 2
+          
+          
+          if __name__=='__main__':raise SystemExit(main(sys.argv))
+          C3C_PY
