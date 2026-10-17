@@ -18,6 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
+DIAGNOSTIC_PARENT = 'df4a93e66bd1116c0d7ec1a0c9bda4c4122e46c2'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -61,7 +62,9 @@ def safety():
     if os.environ.get('GITHUB_ACTIONS') == 'true':
         assert os.environ['GITHUB_REF'] == 'refs/heads/'+BRANCH
         assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
-        assert command(['git', 'rev-parse', 'HEAD^'], capture=True).strip() == BASE
+        assert command(['git', 'rev-parse', 'HEAD^'], capture=True).strip() == DIAGNOSTIC_PARENT
+        diagnostic_changes = set(command(['git', 'diff', '--name-only', 'HEAD^', 'HEAD'], capture=True).splitlines())
+        assert diagnostic_changes == {'validation/c3c/run.py', '.github/workflows/c3c-security-validation.yml'}
         changed = set(command(['git', 'diff', '--name-only', BASE, 'HEAD'], capture=True).splitlines())
         assert changed == set(paths) | SUPPORT, sorted(changed)
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
@@ -76,6 +79,8 @@ def stage(name, operation):
         record = {'stage': name, 'status': 'PASS', 'evidence': evidence}
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         record = {'stage': name, 'status': 'NOT VERIFIED', 'error': type(exc).__name__}
+    except ImageUnavailable as exc:
+        record = {'stage': name, 'status': 'NOT VERIFIED', 'error': type(exc).__name__, 'detail': str(exc)}
     except Exception as exc:
         record = {'stage': name, 'status': 'FAIL', 'error': type(exc).__name__, 'detail': str(exc)[:500]}
     RESULTS.append(record)
@@ -153,9 +158,51 @@ def resource_image(work):
     return ident, digest
 
 
+def sanitize(value, limit=4096):
+    if isinstance(value, bytes): value = value.decode('utf-8', errors='replace')
+    value = re.sub(r'(?i)(https?://)[^\s/@]+:[^\s/@]+@', r'\1[REDACTED]@', value)
+    value = re.sub(r'(?i)((?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*)\S+', r'\1[REDACTED]', value)
+    value = re.sub(r'-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]', value, flags=re.S)
+    return value[:limit]
+
+
+def diagnostic_runtime():
+    from deployment.c3c.supervisor import Runtime
+    class DiagnosticRuntime(Runtime):
+        def call(self, args, *, data=None, cleanup=False):
+            # Mirror the preserved runtime budgets/environment; only add evidence.
+            remaining = 10 if cleanup else min(15, self.deadline-time.monotonic())
+            if remaining <= 0: raise TimeoutError('Whole-operation deadline reached')
+            if not args or args[0] not in ('create', 'start', 'inspect', 'logs', 'rm', 'ps'):
+                raise ValueError('Unexpected diagnostic Docker operation')
+            record = {'command': [sanitize(str(x), 256) for x in ['docker', *args]], 'cleanup': cleanup}
+            with tempfile.TemporaryFile() as errors:
+                try:
+                    result = subprocess.run(['docker', *args], input=data, stdout=subprocess.PIPE, stderr=errors,
+                                            timeout=remaining, env={k:v for k,v in os.environ.items() if k in ('PATH','HOME')})
+                    record['exit_code'] = result.returncode
+                except subprocess.TimeoutExpired:
+                    record.update(exit_code=None, error='TimeoutExpired')
+                    raise
+                finally:
+                    errors.seek(0)
+                    raw = errors.read(4097)
+                    record.update(stderr=sanitize(raw[:4096]), stderr_truncated=len(raw)>4096)
+                    print('DOCKER_DIAGNOSTIC '+json.dumps(record), flush=True)
+            if len(result.stdout)>1024*1024: raise RuntimeError('Unexpected runtime response size')
+            if result.returncode: raise RuntimeError('Runtime command failed; see bounded DOCKER_DIAGNOSTIC evidence')
+            return result.stdout
+    return DiagnosticRuntime
+
+
 def resources(image, work):
-    from deployment.c3c.native_runner import run
-    summary = run(image, work/'native-resources')
+    from deployment.c3c import native_runner
+    original = native_runner.Runtime
+    native_runner.Runtime = diagnostic_runtime()
+    try:
+        summary = native_runner.run(image, work/'native-resources')
+    finally:
+        native_runner.Runtime = original
     rows = summary['resource_fixtures']
     for row in rows:
         print('RESOURCE_EVIDENCE '+json.dumps(row), flush=True)
@@ -193,12 +240,39 @@ def regression(work):
     return {'suite': 'full unchanged engineering suite; raw unittest totals and skips above', 'wheels': str(wheels)}
 
 
-def integrated_build(work):
+class ImageUnavailable(RuntimeError):
+    pass
+
+
+def image_preflight():
+    inputs = json.loads((ROOT/'deployment/c3c/build-inputs.json').read_text())
+    assert inputs['python'] == '3.12' and inputs['playwright'] == '1.64.0'
+    tag = 'mcr.microsoft.com/playwright/python:v'+inputs['playwright']+'-noble'
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        result = subprocess.run(['docker', 'manifest', 'inspect', '--verbose', tag],
+                                stdout=output, stderr=errors, timeout=60)
+        errors.seek(0); raw = errors.read(4097)
+        print('IMAGE_PREFLIGHT '+json.dumps(dict(command=['docker','manifest','inspect','--verbose',tag],
+              exit_code=result.returncode, stderr=sanitize(raw[:4096]), stderr_truncated=len(raw)>4096)), flush=True)
+        if result.returncode:
+            raise ImageUnavailable('Required exact-version image unavailable; no pull, build, downgrade or substitution attempted')
+        output.seek(0); data = output.read(1024*1024+1)
+        if len(data)>1024*1024: raise ImageUnavailable('Registry manifest exceeds bounded response size')
+    manifest = json.loads(data)
+    entries = manifest if isinstance(manifest, list) else [manifest]
+    descriptors = [e.get('Descriptor', {}) for e in entries]
+    matches = [d['digest'] for d in descriptors if d.get('platform', {}).get('os')=='linux'
+               and d.get('platform', {}).get('architecture')=='amd64'
+               and re.fullmatch(r'sha256:[a-f0-9]{64}', d.get('digest', ''))]
+    if len(matches)!=1: raise ImageUnavailable('No unique Linux amd64 immutable image digest; no substitution attempted')
+    return {'tag':tag, 'digest_reference': tag.split(':')[0]+'@'+matches[0],
+            'scope':'registry availability only; Python/browser compatibility still requires unchanged build verification'}
+
+
+def integrated_build(work, digest):
     from deployment.c3c.prepare_build import prepare, verify_wheels
-    tag = 'mcr.microsoft.com/playwright/python:v1.64.0-noble'
-    command(['docker', 'pull', '--platform', 'linux/amd64', tag], timeout=180)
-    digest = json.loads(command(['docker', 'image', 'inspect', tag], capture=True))[0]['RepoDigests'][0]
     assert re.fullmatch(r'[^@ ]+@sha256:[a-f0-9]{64}', digest)
+    command(['docker', 'pull', '--platform', 'linux/amd64', digest], timeout=180)
     source = work/'verified-source'; source.mkdir()
     manifest = json.loads(MANIFEST.read_text())
     for name in manifest['source_sha256']:
@@ -225,7 +299,7 @@ def main():
     args = parser.parse_args(); safety()
     if not args.execute: return 0
     assert os.environ.get('GITHUB_ACTIONS') == 'true', 'Native execution is restricted to the approved disposable runner'
-    stage('real_signed_unix_api', unix_api)
+    sys.path.insert(0, str(ROOT))
     with tempfile.TemporaryDirectory(prefix='c3c-validation-') as temporary:
         work = Path(temporary)
         docker = stage('docker_cgroup_v2_preflight', docker_preflight)
@@ -235,9 +309,13 @@ def main():
                 image = built['evidence'][0]
                 stage('native_cgroup_memory_pid_cpu_storage', lambda: resources(image, work))
                 stage('native_expiry_reaper', lambda: reaper(image))
-        reg = stage('locked_full_regression', lambda: regression(work))
-        if reg['status'] == 'PASS' and docker['status'] == 'PASS':
-            stage('unchanged_integrated_image_builds', lambda: integrated_build(work))
+        preflight = stage('required_image_tag_digest_preflight', image_preflight) if docker['status']=='PASS' else None
+        if preflight and preflight['status']=='PASS':
+            reg = stage('locked_full_regression', lambda: regression(work))
+            if reg['status']=='PASS':
+                stage('unchanged_integrated_image_builds', lambda: integrated_build(work, preflight['evidence']['digest_reference']))
+        else:
+            print('STOP: Required image preflight not passed. No integrated pull/build, dependency change or incompatible substitution.', flush=True)
         survivors = stage('final_zero_managed_survivors', lambda: final_cleanup())
     remaining = ['real non-root Chromium sandbox through broker', 'mTLS gateway',
                  'reachable IPv4/IPv6/metadata canaries and packet/firewall evidence',
