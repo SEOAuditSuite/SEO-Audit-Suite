@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = '8ab203559668ea3766052333e570bdc135e4d330'
+DIAGNOSTIC_PARENT = '6567331ab940a79982eed5a53d7e460b0fd59919'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -37,6 +37,8 @@ def command(args, timeout=60, cwd=ROOT, capture=False, data=None):
 def safety():
     manifest = json.loads(MANIFEST.read_text())
     candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
+    assert candidate['parent']==DIAGNOSTIC_PARENT
+    assert set(candidate['sha256'])==set(candidate['changed_paths'])-{'validation/c3c/candidate-manifest.json'}
     for name,digest in candidate['sha256'].items():
         assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest()==digest,name
     corrections = json.loads((ROOT/'validation/c3c/compatibility-corrections.json').read_text())
@@ -78,7 +80,7 @@ def safety():
         candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
         assert diagnostic_changes == set(candidate['changed_paths'])
         changed = set(command(['git', 'diff', '--name-only', BASE, 'HEAD'], capture=True).splitlines())
-        assert changed == set(paths) | SUPPORT | set(candidate['changed_paths']), sorted(changed)
+        assert changed == set(paths) | SUPPORT | set(candidate['cumulative_support_paths']), sorted(changed)
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
         assert event['repository']['private'] is False, 'Public free-runner eligibility changed'
         assert event['repository']['full_name'] == 'SEOAuditSuite/SEO-Audit-Suite'
@@ -171,11 +173,9 @@ def resource_image(work):
 
 
 def sanitize(value, limit=4096):
-    if isinstance(value, bytes): value = value.decode('utf-8', errors='replace')
-    value = re.sub(r'(?i)(https?://)[^\s/@]+:[^\s/@]+@', r'\1[REDACTED]@', value)
-    value = re.sub(r'(?i)((?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*)\S+', r'\1[REDACTED]', value)
-    value = re.sub(r'-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]', value, flags=re.S)
-    return value[:limit]
+    from validation.c3c.sandbox_probe import sanitize as redact
+    if isinstance(value, bytes): value=value.decode('utf-8',errors='replace')
+    return redact(value,limit)[:limit]
 
 
 def diagnostic_runtime():
@@ -319,11 +319,31 @@ def native_browser(image):
     image_id(image);nonce=uuid.uuid4().hex;name='c3c-'+nonce+'-worker'
     try:
         command(['docker',*browser_options(image,nonce)],timeout=15)
+        details=json.loads(command(['docker','inspect',name],capture=True))[0]
+        host=details['HostConfig']
+        print('NATIVE_BROWSER_CONTAINER '+sanitize(json.dumps(dict(
+            user=details['Config']['User'],apparmor_profile=details.get('AppArmorProfile'),
+            security_opt=host.get('SecurityOpt'),cap_drop=host.get('CapDrop'),
+            readonly=host.get('ReadonlyRootfs'),pids_limit=host.get('PidsLimit'),
+            memory=host.get('Memory'),nano_cpus=host.get('NanoCpus'),ipc=host.get('IpcMode'),
+            network=host.get('NetworkMode')))),flush=True)
         with tempfile.TemporaryFile() as log:
-            result=subprocess.run(['docker','start','--attach',name],stdout=log,stderr=subprocess.STDOUT,timeout=40)
-            log.seek(0);raw=log.read(32769)
-            print('NATIVE_BROWSER_EVIDENCE '+sanitize(raw[:32768],32768),flush=True)
-            assert len(raw)<=32768 and result.returncode==0,'Native browser probe did not pass'
+            timed_out=False;result=None
+            try:
+                result=subprocess.run(['docker','start','--attach',name],stdout=log,stderr=subprocess.STDOUT,timeout=40)
+            except subprocess.TimeoutExpired:
+                timed_out=True
+            finally:
+                log.seek(0);raw=log.read(32769)
+                print('NATIVE_BROWSER_EVIDENCE '+sanitize(raw[:32768],32768),flush=True)
+                state=json.loads(command(['docker','inspect','--format','{{json .State}}',name],capture=True))
+                print('NATIVE_BROWSER_EXIT '+sanitize(json.dumps(dict(
+                    docker_attach_exit=result.returncode if result else None,attach_timeout=timed_out,
+                    container_exit=state.get('ExitCode') if not state.get('Running') else None,
+                    running=state.get('Running'),oom_killed=state.get('OOMKilled'),
+                    engine_error=state.get('Error'),
+                    note='Container exit is distinct from Chromium exit reported by Playwright'))),flush=True)
+            assert not timed_out and len(raw)<=32768 and result.returncode==0,'Native browser probe did not pass'
         return {'status':'PASS','scope':'Pinned non-root sandbox and synthetic original secure_context; real broker/mTLS acceptance remains separate'}
     finally:
         command(['docker','rm','--force',name],timeout=15)

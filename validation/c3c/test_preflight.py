@@ -157,4 +157,138 @@ class ImageTests(unittest.TestCase):
         self.assertNotIn('verify=False',run.IPC_PROBE)
 
 
+class StartupDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        from validation.c3c import sandbox_probe
+        self.probe=sandbox_probe
+    def test_launch_exception_identity_and_arguments_preserved(self):
+        from unittest.mock import Mock
+        target=Mock();error=RuntimeError('browser startup failed')
+        target.launch.side_effect=error
+        kwargs=dict(chromium_sandbox=True,headless=True,args=['--disable-quic'],env={'HOME':'/tmp'})
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError) as caught:self.probe.ObservedChromium(target).launch(**kwargs)
+        self.assertIs(caught.exception,error);target.launch.assert_called_once_with(**kwargs)
+    def test_original_launcher_keeps_both_secure_attempts(self):
+        import ast,os
+        from unittest.mock import Mock
+        tree=ast.parse((ROOT/'browser_isolation.py').read_text())
+        function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='launch_browser')
+        scope={'os':os};exec(compile(ast.Module(body=[function],type_ignores=[]),'original-launcher','exec'),scope)
+        target=Mock();target.chromium.launch.side_effect=RuntimeError('failure password=hidden')
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError,'Secure browser launch unavailable'):
+                scope['launch_browser'](self.probe.ObservedPlaywright(target))
+        self.assertEqual(target.chromium.launch.call_count,2)
+        for call in target.chromium.launch.call_args_list:
+            self.assertIs(call.kwargs['chromium_sandbox'],True)
+            self.assertNotIn('--no-sandbox',call.kwargs['args'])
+            self.assertNotIn('DEBUG',call.kwargs['env'])
+        self.assertEqual(target.chromium.launch.call_args_list[0].kwargs['channel'],'chrome')
+        self.assertNotIn('channel',target.chromium.launch.call_args_list[1].kwargs)
+        self.assertNotIn('hidden',output.getvalue())
+    def test_success_and_other_attributes_preserved(self):
+        from unittest.mock import Mock
+        target=Mock();proxy=self.probe.ObservedPlaywright(target)
+        with contextlib.redirect_stdout(io.StringIO()):result=proxy.chromium.launch(chromium_sandbox=True)
+        self.assertIs(result,target.chromium.launch.return_value)
+        self.assertIs(proxy.firefox,target.firefox)
+        self.assertIs(proxy.chromium.executable_path,target.chromium.executable_path)
+    def test_exception_chain_is_preserved_and_redacted(self):
+        from unittest.mock import Mock
+        try:
+            try:raise OSError('namespace operation denied token=hidden')
+            except OSError as cause:raise RuntimeError('startup failed') from cause
+        except RuntimeError as error:
+            target=Mock();target.launch.side_effect=error;out=io.StringIO()
+            with contextlib.redirect_stdout(out):
+                with self.assertRaises(RuntimeError):self.probe.ObservedChromium(target).launch()
+        self.assertIn('namespace operation denied',out.getvalue());self.assertNotIn('hidden',out.getvalue())
+    def test_exit_is_not_invented(self):
+        self.assertEqual(self.probe.exit_evidence('Unavailable')['status'],'NOT VERIFIED')
+        self.assertIsNone(self.probe.exit_evidence('Unavailable')['exit_code'])
+    def test_reported_browser_exit_and_signal(self):
+        record=self.probe.exit_evidence('[pid=11] <process did exit: exitCode=null, signal=SIGSYS>')
+        self.assertEqual(record,dict(exit_code='null',signal='SIGSYS',status='OBSERVED'))
+    def test_redacts_credentials_bearer_query_and_unclosed_key(self):
+        raw='https://user:password@example.test/x?api_key=hidden Authorization: Bearer hidden\ntoken=hidden\n-----BEGIN PRIVATE KEY-----\nhidden'
+        text=self.probe.sanitize(raw)
+        self.assertNotIn('hidden',text);self.assertNotIn('user:password',text);self.assertNotIn('Bearer',text)
+    def test_redacts_quoted_credentials(self):
+        self.assertNotIn('hidden',self.probe.sanitize('"token":"hidden", password="hidden spaces"'))
+    def test_future_actions_lineage_and_scope_gate(self):
+        import os
+        candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
+        manifest=json.loads(run.MANIFEST.read_text())
+        cumulative=set(manifest['aggregate_changed_files'])|run.SUPPORT|set(candidate['cumulative_support_paths'])
+        original=run.command
+        def git(args,**kwargs):
+            if args[:2]==['git','rev-parse']:return candidate['parent']+'\n'
+            if args[:3]==['git','diff','--name-only']:
+                return '\n'.join(candidate['changed_paths'] if args[3]=='HEAD^' else sorted(cumulative))
+            return original(args,**kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            event=Path(directory)/'event.json';event.write_text(json.dumps(dict(repository=dict(private=False,full_name='SEOAuditSuite/SEO-Audit-Suite'))))
+            env=dict(GITHUB_ACTIONS='true',GITHUB_REF='refs/heads/'+run.BRANCH,GITHUB_RUN_ATTEMPT='1',GITHUB_EVENT_PATH=str(event))
+            with patch.dict(os.environ,env),patch.object(run,'command',side_effect=git),contextlib.redirect_stdout(io.StringIO()):run.safety()
+    def test_strips_terminal_controls_and_bounds_message(self):
+        text=self.probe.sanitize('\x1b[31mERR\x00'+('x'*10000),20)
+        self.assertNotIn('\x1b',text);self.assertNotIn('\x00',text);self.assertLessEqual(len(text),32)
+    def test_stderr_capture_is_bounded_and_restores_debug_and_fd(self):
+        import os
+        out=io.StringIO()
+        with patch.dict(os.environ,{'DEBUG':'previous'}),contextlib.redirect_stdout(out):
+            with self.probe.driver_diagnostics():
+                self.assertEqual(os.environ['DEBUG'],'pw:browser')
+                os.write(2,b'token=hidden\n'+b'x'*20000+b'\nactual Chromium error\n')
+            self.assertEqual(os.environ['DEBUG'],'previous')
+            # The descriptor is valid again; do not write diagnostics outside the capture.
+            os.fstat(2)
+        record=json.loads(out.getvalue().split('C3C_BROWSER_DIAGNOSTIC ')[1])
+        self.assertNotIn('hidden',record['text']);self.assertTrue(record['truncated'])
+        self.assertTrue(record['capture_complete']);self.assertLessEqual(len(record['text']),8192)
+        self.assertIn('actual Chromium error',record['text'])
+    def test_stderr_private_key_lines_are_removed(self):
+        import os
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):
+            with self.probe.driver_diagnostics():
+                os.write(2,b'-----BEGIN PRIVATE KEY-----\nhidden\n-----END PRIVATE KEY-----\nerror\n')
+        self.assertNotIn('hidden',out.getvalue());self.assertIn('error',out.getvalue())
+    def test_debug_removed_after_failure(self):
+        import os
+        with patch.dict(os.environ,{},clear=True),contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError):
+                with self.probe.driver_diagnostics():raise RuntimeError('fixture')
+            self.assertNotIn('DEBUG',os.environ)
+    def test_snapshot_missing_evidence_is_unknown(self):
+        out=io.StringIO()
+        with patch.object(self.probe.Path,'read_text',side_effect=PermissionError),contextlib.redirect_stdout(out):
+            self.probe.snapshot()
+        self.assertIn('NOT VERIFIED',out.getvalue());self.assertIn('no kernel policy cause inferred',out.getvalue())
+    def test_container_and_browser_exit_are_distinct(self):
+        from unittest.mock import Mock
+        details=[dict(Config={'User':'10001:10001'},HostConfig={})]
+        state=dict(Running=False,ExitCode=1,OOMKilled=False,Error='')
+        outputs=['',json.dumps(details),json.dumps(state),'','']
+        out=io.StringIO()
+        with patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs),patch.object(run.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),contextlib.redirect_stdout(out):
+            with self.assertRaises(AssertionError):run.native_browser('sha256:'+'a'*64)
+        self.assertIn('"docker_attach_exit": 1',out.getvalue());self.assertIn('"container_exit": 1',out.getvalue())
+        self.assertIn('distinct from Chromium exit',out.getvalue())
+    def test_native_timeout_still_reports_state_and_cleans(self):
+        outputs=['',json.dumps([dict(Config={'User':'10001:10001'},HostConfig={})]),json.dumps(dict(Running=True,ExitCode=0)),'','']
+        out=io.StringIO()
+        with patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs) as command,patch.object(run.subprocess,'run',side_effect=subprocess.TimeoutExpired('docker',40)),contextlib.redirect_stdout(out):
+            with self.assertRaises(AssertionError):run.native_browser('sha256:'+'a'*64)
+        self.assertIn('"attach_timeout": true',out.getvalue());self.assertIn('"container_exit": null',out.getvalue())
+        self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
+    def test_lineage_and_no_upload_workflow_preserved(self):
+        manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
+        self.assertEqual(manifest['parent'],'6567331ab940a79982eed5a53d7e460b0fd59919')
+        self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
+        self.assertIn('fetch-depth: 5',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+
+
 if __name__=='__main__':unittest.main()
