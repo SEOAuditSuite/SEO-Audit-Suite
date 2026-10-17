@@ -40,7 +40,7 @@ def options(name,nonce,image,limits,broker=False):
          '--security-opt','no-new-privileges=true','--memory',str(memory)+'m',
          '--memory-swap',str(memory)+'m','--cpus',str(cpu),'--pids-limit',str(pids),
          '--ulimit','nofile=256:256','--ulimit','core=0:0','--ipc','private',
-         '--log-driver','local','--log-opt','max-size=10m','--log-opt','max-file=1',
+         '--log-driver','local','--log-opt','max-size=10m','--log-opt','max-file=1','--log-opt','compress=false',
          '--tmpfs','/tmp:rw,nosuid,nodev,size='+str(limits.temporary_mib if not broker else 16)+'m,mode=1777',
          '--network','seo-c3c-broker' if broker else 'none',
          '--mount','type=volume,src=c3c-'+nonce+'-ipc,dst=/run/seo-broker'+('' if broker else ',readonly'),

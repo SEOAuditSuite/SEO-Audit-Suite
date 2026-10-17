@@ -47,7 +47,7 @@ def run(image,output):
                   '--network','none','--user','10001:10001','--read-only','--cap-drop','ALL',
                   '--security-opt','no-new-privileges=true','--memory','64m','--memory-swap','64m',
                   '--pids-limit','8','--cpus','0.20','--log-driver','local',
-                  '--log-opt','max-size=1m','--log-opt','max-file=1',
+                  '--log-opt','max-size=1m','--log-opt','max-file=1','--log-opt','compress=false',
                   '--tmpfs','/tmp:rw,nosuid,nodev,size=8m,mode=1777',
                   '--entrypoint','python',image,'-m','deployment.c3c.native_limits',
                   '--inside-capped-test-job','--mode',mode]

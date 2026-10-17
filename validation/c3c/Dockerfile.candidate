@@ -1,0 +1,40 @@
+# Linux/amd64 CPython 3.12 Playwright base matching build-inputs.json, by digest.
+# Build uses only a sanitized verified context and preverified offline wheels.
+ARG BASE_IMAGE
+ARG BROWSER_IMAGE
+FROM ${BROWSER_IMAGE} AS browser_donor
+FROM ${BASE_IMAGE} AS common
+ARG BASE_IMAGE
+USER root
+WORKDIR /app
+RUN python -c "import os,re; assert re.fullmatch(r'[^@ ]+@sha256:[a-f0-9]{64}', os.environ.get('BASE_IMAGE','')), 'Digest-pinned base image required'"
+COPY wheelhouse /wheels
+COPY deployment/c3c/requirements.linux.lock /requirements.linux.lock
+RUN python -m pip --isolated install --no-index --find-links=/wheels \
+      --require-hashes --only-binary=:all: -r /requirements.linux.lock \
+    && rm -rf /wheels \
+    && groupadd -g 10001 seo && useradd -u 10001 -g seo -M seo
+COPY . /app
+RUN rm -rf /ms-playwright
+COPY --from=browser_donor /ms-playwright/chromium-1248 /ms-playwright/chromium-1248
+COPY --from=browser_donor /ms-playwright/chromium_headless_shell-1248 /ms-playwright/chromium_headless_shell-1248
+COPY --from=browser_donor /ms-playwright/ffmpeg-1013 /ms-playwright/ffmpeg-1013
+RUN chmod -R a+rX,go-w /ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN python -m deployment.c3c.build_verify \
+    && mkdir -p /run/seo-broker && chown 10001:10001 /run/seo-broker \
+    && chmod -R go-w /app
+ENV PYTHONDONTWRITEBYTECODE=1 HOME=/tmp
+USER 10001:10001
+
+RUN python /app/validation/c3c/verify_candidate_image.py
+
+FROM common AS broker
+ENTRYPOINT ["python", "-m", "deployment.c3c.broker"]
+
+FROM common AS worker
+USER root
+RUN cp /app/safe_http.py /app/c1_transport.py \
+    && cp /app/deployment/c3c/remote_transport.py /app/safe_http.py
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "deployment.c3c.job"]

@@ -1,0 +1,34 @@
+{
+  "parent": "8ab203559668ea3766052333e570bdc135e4d330",
+  "required_main": "36c98ecd4537cc421e0ffe08321f62a10b0bed36",
+  "readiness": "APPROVED_FOR_ONE_NATIVE_ATTEMPT_AFTER_STATIC_CHECKS",
+  "changed_paths": [
+    ".github/workflows/c3c-security-validation.yml",
+    "deployment/c3c/native_runner.py",
+    "deployment/c3c/supervisor.py",
+    "validation/c3c/Dockerfile.candidate",
+    "validation/c3c/candidate-manifest.json",
+    "validation/c3c/compatibility-corrections.json",
+    "validation/c3c/image-inputs.json",
+    "validation/c3c/image_candidate.py",
+    "validation/c3c/run.py",
+    "validation/c3c/sandbox_probe.py",
+    "validation/c3c/test_preflight.py",
+    "validation/c3c/verify_candidate_image.py"
+  ],
+  "sha256": {
+    ".github/workflows/c3c-security-validation.yml": "597985fa31394ea7746812cc66c505d6e9672e17d40c7cf9b2bfbc8d382d94e6",
+    "deployment/c3c/native_runner.py": "c240764f7c87b3b2a496b18d152eea42ee30ed8b53b7923cb628e65c25fc41b8",
+    "deployment/c3c/supervisor.py": "d686a5a99b4f00760ddee1ec7179573117b982b79a4dccb4f372829b56a91b93",
+    "validation/c3c/Dockerfile.candidate": "b2a2841f8ba5e980528a464447822bbdd5e4e1f9e11ec54319b6e629eeff7b0f",
+    "validation/c3c/compatibility-corrections.json": "50914185d11ea5db7fafb5d6c0335b7bd0e5a2d430cfdd01a783538847878240",
+    "validation/c3c/image-inputs.json": "99b4ed4700b1b35db88f30f09b2e254b0d227e7128b3845b79b203c575b221c1",
+    "validation/c3c/image_candidate.py": "bf1726936ce09f73bd79521e4bfa1233f2b1e40d07f9da871dee61b51af1f328",
+    "validation/c3c/run.py": "0100a0edc76b68554afc48d11004bc7b3f3aec7a93286ff80f7b3a9a1997f024",
+    "validation/c3c/sandbox_probe.py": "35af4651a830042e745f2c70fcf048cdc8df52a4936a5ac309230d6a82bb613b",
+    "validation/c3c/test_preflight.py": "e1893624544304e3a80ffc1b29c15efbba012d80d928c7582bfc9817a3444da8",
+    "validation/c3c/verify_candidate_image.py": "98611c2f8c3dfa39b60629e4267cb85769b2d20fe18db32709781a01369df61f"
+  },
+  "recovery_package_sha256": "f754396766233519be6c1778f774e3308eed4d31576e7a9ab75c1114b0ae45a0",
+  "validation_scope_note": "Minimal 12-path publication; adds bounded real container IPC denial fixture for the currently approved native validation scope. Historical local evidence/report files are excluded."
+}

@@ -1,0 +1,21 @@
+{
+  "status": "REGISTRY_VERIFIED_NATIVE_PENDING",
+  "seed_role": "OS and Python seed only; replace all seed browsers before verification",
+  "seed_tag_observed": "mcr.microsoft.com/playwright/python:v1.63.0-noble",
+  "seed_image": "mcr.microsoft.com/playwright/python@sha256:96b39581c89131729a7ecb8d532314af54c7f9bcc7a61fe15c7a9e77602acf59",
+  "seed_index_sha256": "72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0",
+  "python": "3.12",
+  "architecture": "linux/amd64",
+  "playwright": "1.64.0",
+  "wheel_sha256": "5a59af1b230b234008524a5d42b613b233d4256f73bc1dd25bf3f11db0c81b75",
+  "bundled_manifest_sha256": "2cfd419f71ac6475d81e1301fa86c34cf2a2a6bae2a0da4b5a2b18310216b6bf",
+  "chromium_version": "156.0.8078.4",
+  "browser_directories": [
+    "chromium-1248",
+    "chromium_headless_shell-1248",
+    "ffmpeg-1013"
+  ],
+  "blocker": "Docker unavailable locally: actual offline builds, dynamic libraries, non-root Chromium sandbox and integration acceptance NOT VERIFIED",
+  "browser_image": "mcr.microsoft.com/playwright@sha256:bc72a8df40831ded821e3cbc79c318c21b44d6e51dff9fd89ace7a8249c5b462",
+  "browser_tag_observed": "mcr.microsoft.com/playwright:v1.64.0-noble"
+}

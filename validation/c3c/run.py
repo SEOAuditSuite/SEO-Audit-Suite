@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = 'df4a93e66bd1116c0d7ec1a0c9bda4c4122e46c2'
+DIAGNOSTIC_PARENT = '8ab203559668ea3766052333e570bdc135e4d330'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -36,12 +36,23 @@ def command(args, timeout=60, cwd=ROOT, capture=False, data=None):
 
 def safety():
     manifest = json.loads(MANIFEST.read_text())
+    candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
+    for name,digest in candidate['sha256'].items():
+        assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest()==digest,name
+    corrections = json.loads((ROOT/'validation/c3c/compatibility-corrections.json').read_text())
+    assert set(corrections)=={'deployment/c3c/native_runner.py','deployment/c3c/supervisor.py'}
     assert manifest['baseline'] == BASE
     paths = manifest['aggregate_changed_files']
     assert len(paths) == len(set(paths)) == 48
     for name, digest in manifest['source_sha256'].items():
         data = command(['git', 'show', BASE + ':' + name], capture=True).encode() if name in SUPPORT else (ROOT/name).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == digest, name
+        if name in corrections:
+            correction=corrections[name]
+            assert correction['before']==digest
+            assert hashlib.sha256(data).hexdigest()==correction['after'], name
+            assert hashlib.sha256(data.replace(b",'--log-opt','compress=false'",b'')).hexdigest()==digest, name
+        else:
+            assert hashlib.sha256(data).hexdigest() == digest, name
     workflow = (ROOT/'.github/workflows/c3c-security-validation.yml').read_text()
     generic = (ROOT/'.github/workflows/python-check.yml').read_text()
     checks = {
@@ -64,13 +75,14 @@ def safety():
         assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
         assert command(['git', 'rev-parse', 'HEAD^'], capture=True).strip() == DIAGNOSTIC_PARENT
         diagnostic_changes = set(command(['git', 'diff', '--name-only', 'HEAD^', 'HEAD'], capture=True).splitlines())
-        assert diagnostic_changes == {'validation/c3c/run.py', '.github/workflows/c3c-security-validation.yml'}
+        candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
+        assert diagnostic_changes == set(candidate['changed_paths'])
         changed = set(command(['git', 'diff', '--name-only', BASE, 'HEAD'], capture=True).splitlines())
-        assert changed == set(paths) | SUPPORT, sorted(changed)
+        assert changed == set(paths) | SUPPORT | set(candidate['changed_paths']), sorted(changed)
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
         assert event['repository']['private'] is False, 'Public free-runner eligibility changed'
         assert event['repository']['full_name'] == 'SEOAuditSuite/SEO-Audit-Suite'
-    print('PASS: 128 source hashes, exact 48-file engineering manifest, 11 workflow safety checks', flush=True)
+    print('PASS: 128 source hashes with two explicitly verified logging-only corrections; 11 workflow safety checks', flush=True)
 
 
 def stage(name, operation):
@@ -245,53 +257,152 @@ class ImageUnavailable(RuntimeError):
 
 
 def image_preflight():
-    inputs = json.loads((ROOT/'deployment/c3c/build-inputs.json').read_text())
-    assert inputs['python'] == '3.12' and inputs['playwright'] == '1.64.0'
-    tag = 'mcr.microsoft.com/playwright/python:v'+inputs['playwright']+'-noble'
-    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-        result = subprocess.run(['docker', 'manifest', 'inspect', '--verbose', tag],
-                                stdout=output, stderr=errors, timeout=60)
-        errors.seek(0); raw = errors.read(4097)
-        print('IMAGE_PREFLIGHT '+json.dumps(dict(command=['docker','manifest','inspect','--verbose',tag],
-              exit_code=result.returncode, stderr=sanitize(raw[:4096]), stderr_truncated=len(raw)>4096)), flush=True)
-        if result.returncode:
-            raise ImageUnavailable('Required exact-version image unavailable; no pull, build, downgrade or substitution attempted')
-        output.seek(0); data = output.read(1024*1024+1)
-        if len(data)>1024*1024: raise ImageUnavailable('Registry manifest exceeds bounded response size')
-    manifest = json.loads(data)
-    entries = manifest if isinstance(manifest, list) else [manifest]
-    descriptors = [e.get('Descriptor', {}) for e in entries]
-    matches = [d['digest'] for d in descriptors if d.get('platform', {}).get('os')=='linux'
-               and d.get('platform', {}).get('architecture')=='amd64'
-               and re.fullmatch(r'sha256:[a-f0-9]{64}', d.get('digest', ''))]
-    if len(matches)!=1: raise ImageUnavailable('No unique Linux amd64 immutable image digest; no substitution attempted')
-    return {'tag':tag, 'digest_reference': tag.split(':')[0]+'@'+matches[0],
-            'scope':'registry availability only; Python/browser compatibility still requires unchanged build verification'}
+    from validation.c3c import image_candidate
+    inputs=json.loads(image_candidate.INPUTS.read_text())
+    try:
+        rows=image_candidate.verify_remote_images(inputs)
+    except (image_candidate.Blocked,OSError) as exc:
+        raise ImageUnavailable('Reviewed seed/donor preflight blocked: '+str(exc)) from None
+    return {'digest_reference':inputs['seed_image'], 'browser_digest_reference':inputs['browser_image'],
+            'registry_evidence':rows,'scope':'Availability only; actual build and sandbox remain mandatory'}
 
 
 def integrated_build(work, digest):
     from deployment.c3c.prepare_build import prepare, verify_wheels
+    from validation.c3c import image_candidate
     assert re.fullmatch(r'[^@ ]+@sha256:[a-f0-9]{64}', digest)
-    command(['docker', 'pull', '--platform', 'linux/amd64', digest], timeout=180)
+    inputs=json.loads(image_candidate.INPUTS.read_text())
+    assert digest==inputs['seed_image']
+    for reference in (digest,inputs['browser_image']):
+        command(['docker','pull','--platform','linux/amd64',reference],timeout=180)
     source = work/'verified-source'; source.mkdir()
     manifest = json.loads(MANIFEST.read_text())
+    corrections=json.loads((ROOT/'validation/c3c/compatibility-corrections.json').read_text())
+    for name,record in corrections.items(): manifest['source_sha256'][name]=record['after']
     for name in manifest['source_sha256']:
         dest = source/name; dest.parent.mkdir(parents=True, exist_ok=True)
         if name in SUPPORT:
             dest.write_bytes(subprocess.check_output(['git', 'show', BASE+':'+name], cwd=ROOT))
         else:
             shutil.copyfile(ROOT/name, dest)
-    context = prepare(source, MANIFEST, work/'context')
-    for wheel in (work/'wheels').iterdir(): shutil.copyfile(wheel, context/'wheelhouse'/wheel.name)
+    corrected_manifest=work/'corrected-source-manifest.json'
+    corrected_manifest.write_text(json.dumps(manifest))
+    sanitized=prepare(source,corrected_manifest,work/'sanitized-context')
+    # Donor browser paths and exact SDK versions are checked by the offline recipe.
+    image_candidate.prepare(sanitized,work/'wheels',work/'context')
+    context=work/'context'
     verify_wheels(context/'wheelhouse', context/'deployment/c3c/requirements.linux.lock')
     ids = {}
     for target in ('worker', 'broker'):
         tagname = 'c3c-'+target+':local'
-        command(['docker', 'build', '--network=none', '--platform', 'linux/amd64', '--build-arg', 'BASE_IMAGE='+digest,
-                 '-f', str(context/'deployment/c3c/Dockerfile.integrated'), '--target', target, '-t', tagname, str(context)], timeout=240)
+        command(['docker', 'build', '--network=none', '--platform', 'linux/amd64', '--build-arg', 'BASE_IMAGE='+digest,'--build-arg','BROWSER_IMAGE='+inputs['browser_image'],
+                 '-f', str(context/'Dockerfile.candidate'), '--target', target, '-t', tagname, str(context)], timeout=240)
         ids[target] = command(['docker', 'image', 'inspect', '--format', '{{.Id}}', tagname], capture=True).strip()
     return {'base_digest': digest, 'immutable_image_ids': ids,
-            'scope': 'unchanged integrated images built; sandbox/browser/broker runtime acceptance remains separate'}
+            'browser_donor':inputs['browser_image'], 'scope':'Candidate images built; sandbox and broker runtime acceptance remain separate'}
+
+
+def browser_options(image,nonce):
+    return ['create','--name','c3c-'+nonce+'-worker','--label','seo.c3c.managed=true',
+            '--label','seo.c3c.job='+nonce,'--label','seo.c3c.expires='+str(int(time.time()+60)),
+            '--user','10001:10001','--read-only','--cap-drop','ALL',
+            '--security-opt','no-new-privileges=true','--memory','1536m','--memory-swap','1536m',
+            '--cpus','1.0','--pids-limit','64','--ulimit','nofile=256:256','--ulimit','core=0:0',
+            '--ipc','private','--network','none','--tmpfs','/tmp:rw,nosuid,nodev,size=256m,mode=1777',
+            '--log-driver','local','--log-opt','max-size=10m','--log-opt','max-file=1','--log-opt','compress=false',
+            '--env','HOME=/tmp','--env','PYTHONDONTWRITEBYTECODE=1',
+            '--entrypoint','python',image,'/app/validation/c3c/sandbox_probe.py']
+
+
+def native_browser(image):
+    from deployment.c3c.supervisor import image_id
+    image_id(image);nonce=uuid.uuid4().hex;name='c3c-'+nonce+'-worker'
+    try:
+        command(['docker',*browser_options(image,nonce)],timeout=15)
+        with tempfile.TemporaryFile() as log:
+            result=subprocess.run(['docker','start','--attach',name],stdout=log,stderr=subprocess.STDOUT,timeout=40)
+            log.seek(0);raw=log.read(32769)
+            print('NATIVE_BROWSER_EVIDENCE '+sanitize(raw[:32768],32768),flush=True)
+            assert len(raw)<=32768 and result.returncode==0,'Native browser probe did not pass'
+        return {'status':'PASS','scope':'Pinned non-root sandbox and synthetic original secure_context; real broker/mTLS acceptance remains separate'}
+    finally:
+        command(['docker','rm','--force',name],timeout=15)
+        assert not command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+
+
+IPC_PROBE = '''import json,socket,os
+from safe_http import SafeSession,TransportError
+assert os.getuid()==10001
+def exchange(payload):
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
+        connection.settimeout(5);connection.connect('/run/seo-broker/broker.sock')
+        connection.sendall(json.dumps(payload).encode()+b'\\n')
+        with connection.makefile('rb') as stream:raw=stream.readline(4097)
+    assert len(raw)<=4096 and raw.endswith(b'\\n')
+    return json.loads(raw)
+request=dict(url='http://127.0.0.1/',headers={},max_bytes=1024,seconds=2)
+assert exchange(request).get('ok') is False
+assert exchange(dict(request,method='POST')).get('ok') is False
+try:
+    SafeSession().get('http://127.0.0.1/',timeout=2,max_bytes=1024)
+except TransportError:pass
+else:raise AssertionError('Private target unexpectedly accepted')
+print(json.dumps(dict(status='PASS',uid=os.getuid(),actual_unix_exchange=True,private_destination_denied=True,non_get_schema_denied=True,worker_socket_bridge_fails_closed=True)))
+'''
+
+
+def ipc_options(image,nonce,broker=False):
+    from deployment.c3c.supervisor import options
+    from deployment.c3c.policy import Limits
+    args=options('c3c-'+nonce+('-broker' if broker else '-worker'),nonce,image,Limits(),broker)
+    # A denial-only synthetic fixture needs no outbound network. Resource,
+    # identity, IPC mount and privilege controls remain the production values.
+    args[args.index('--network')+1]='none'
+    if not broker:
+        args[-1:-1]=['--entrypoint','python']
+        args+=['-c',IPC_PROBE]
+    return args
+
+
+def native_broker_ipc(ids):
+    nonce=uuid.uuid4().hex;volume='c3c-'+nonce+'-ipc'
+    names=['c3c-'+nonce+'-broker','c3c-'+nonce+'-worker']
+    created=[];volume_created=False
+    try:
+        command(['docker','volume','create','--driver','local','--opt','type=tmpfs',
+                 '--opt','device=tmpfs','--opt','o=size=1m,uid=10001,gid=10001,mode=0700',
+                 '--label','seo.c3c.job='+nonce,'--label','seo.c3c.managed=true',volume],timeout=15)
+        volume_created=True
+        for name,image,broker in [(names[0],ids['broker'],True),(names[1],ids['worker'],False)]:
+            command(['docker',*ipc_options(image,nonce,broker)],timeout=15);created.append(name)
+            info=json.loads(command(['docker','inspect',name],capture=True))[0]
+            h=info['HostConfig'];memory=(256 if broker else 1536)*1024*1024
+            assert h['Memory']==h['MemorySwap']==memory and h['PidsLimit']==(16 if broker else 64)
+            assert h['NanoCpus']==int((.25 if broker else 1.0)*1e9) and h['NetworkMode']=='none'
+            assert h['ReadonlyRootfs'] and not h['Privileged'] and h['IpcMode']=='private'
+            assert info['Config']['User']=='10001:10001' and 'ALL' in h['CapDrop']
+            assert 'no-new-privileges=true' in h['SecurityOpt']
+            mount=next(m for m in info['Mounts'] if m['Destination']=='/run/seo-broker')
+            assert mount['Name']==volume and mount['RW'] is broker
+        command(['docker','start',names[0]],timeout=15)
+        for _ in range(15):
+            ready=subprocess.run(['docker','exec',names[0],'test','-S','/run/seo-broker/broker.sock'],capture_output=True,timeout=3)
+            if ready.returncode==0:break
+            time.sleep(.1)
+        else:raise RuntimeError('Native broker socket not ready')
+        with tempfile.TemporaryFile() as log:
+            result=subprocess.run(['docker','start','--attach',names[1]],stdout=log,stderr=subprocess.STDOUT,timeout=20)
+            log.seek(0);raw=log.read(32769)
+            print('NATIVE_BROKER_IPC_EVIDENCE '+sanitize(raw[:32768],32768),flush=True)
+            assert len(raw)<=32768 and result.returncode==0,'Native broker IPC fixture failed'
+            outcome=json.loads(raw)
+            assert outcome['status']=='PASS' and outcome['actual_unix_exchange'] is True
+        return {'status':'PASS','scope':'Real container-to-container Unix IPC and worker bridge denial; positive HTTP/rendering, firewall and mTLS remain NOT VERIFIED'}
+    finally:
+        for name in reversed(created):command(['docker','rm','--force',name],timeout=15)
+        if volume_created:command(['docker','volume','rm',volume],timeout=15)
+        assert not command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+        assert not command(['docker','volume','ls','-q','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
 
 
 def main():
@@ -303,18 +414,22 @@ def main():
     with tempfile.TemporaryDirectory(prefix='c3c-validation-') as temporary:
         work = Path(temporary)
         docker = stage('docker_cgroup_v2_preflight', docker_preflight)
-        if docker['status'] == 'PASS':
+        preflight = stage('candidate_image_preflight',image_preflight) if docker['status']=='PASS' else None
+        if preflight and preflight['status']=='PASS':
             built = stage('isolated_resource_fixture_image', lambda: resource_image(work))
             if built['status'] == 'PASS':
                 image = built['evidence'][0]
                 stage('native_cgroup_memory_pid_cpu_storage', lambda: resources(image, work))
                 stage('native_expiry_reaper', lambda: reaper(image))
-        preflight = stage('required_image_tag_digest_preflight', image_preflight) if docker['status']=='PASS' else None
         if preflight and preflight['status']=='PASS':
             reg = stage('locked_full_regression', lambda: regression(work))
             if reg['status']=='PASS':
-                stage('unchanged_integrated_image_builds', lambda: integrated_build(work, preflight['evidence']['digest_reference']))
-        else:
+                integrated=stage('candidate_integrated_image_builds',lambda:integrated_build(work,preflight['evidence']['digest_reference']))
+                if integrated['status']=='PASS':
+                    stage('native_candidate_browser_sandbox',lambda:native_browser(integrated['evidence']['immutable_image_ids']['worker']))
+                    stage('native_container_broker_ipc',lambda:native_broker_ipc(integrated['evidence']['immutable_image_ids']))
+        stage('real_signed_unix_api',unix_api)
+        if not preflight or preflight['status']!='PASS':
             print('STOP: Required image preflight not passed. No integrated pull/build, dependency change or incompatible substitution.', flush=True)
         survivors = stage('final_zero_managed_survivors', lambda: final_cleanup())
     remaining = ['real non-root Chromium sandbox through broker', 'mTLS gateway',
@@ -333,7 +448,10 @@ def final_cleanup():
     if ids: command(['docker', 'rm', '-f', *ids], timeout=30)
     remaining = command(['docker', 'ps', '-aq', '--filter', 'label=seo.c3c.managed=true'], capture=True).strip()
     assert not remaining
-    return {'zero_managed_containers': True, 'forced_cleanup_was_needed': bool(ids)}
+    volumes=command(['docker','volume','ls','-q','--filter','label=seo.c3c.managed=true'],capture=True).split()
+    if volumes:command(['docker','volume','rm',*volumes],timeout=30)
+    assert not command(['docker','volume','ls','-q','--filter','label=seo.c3c.managed=true'],capture=True).strip()
+    return {'zero_managed_containers': True,'zero_managed_volumes':True,'forced_cleanup_was_needed':bool(ids or volumes)}
 
 
 if __name__ == '__main__':

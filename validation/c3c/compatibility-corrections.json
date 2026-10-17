@@ -1,0 +1,12 @@
+{
+  "deployment/c3c/native_runner.py": {
+    "before": "08be0db1deb4a8802665ec0f630fc0b8ddf01bb7375db0761d6ca9b402925328",
+    "after": "c240764f7c87b3b2a496b18d152eea42ee30ed8b53b7923cb628e65c25fc41b8",
+    "reason": "Docker local logging with max-file=1 requires compression disabled; log count/size and all security limits unchanged"
+  },
+  "deployment/c3c/supervisor.py": {
+    "before": "76e5e44c37c5f0610d52e88782ac796a31528b26135eeb50158c42000ac6d8a1",
+    "after": "d686a5a99b4f00760ddee1ec7179573117b982b79a4dccb4f372829b56a91b93",
+    "reason": "Docker local logging with max-file=1 requires compression disabled; log count/size and all security limits unchanged"
+  }
+}
