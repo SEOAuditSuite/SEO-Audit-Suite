@@ -281,7 +281,7 @@ def prepare_job(job):
     compiled=compile_host_profile(parser,directory/'profile.bin')
     state=dict(job=job,profile=policy.PROFILE,before=before,compiled=compiled,phase='reserved',owned=False)
     write_state(directory,state)
-    # --add is deliberately used, never --replace. Binary removal later uses this same private file.
+    # --add is deliberately used, never --replace. Keep the binary as ownership evidence.
     command([parser,'--config-file','/dev/null','--skip-cache','--add','--binary',str(directory/'profile.bin')])
     state.update(owned=True,phase='loaded');write_state(directory,state)
     return verify_job(job)
@@ -304,22 +304,45 @@ def cleanup_job(job):
     if not directory.exists():return dict(status='PASS',scope='No job policy receipt exists; nothing removed')
     directory,state=read_state(job)
     current=inventory()
+    if policy.PROFILE in state['before']:raise Blocked('Receipt contains pre-existing target; no removal')
+    if any(current.get(name)!=record for name,record in state['before'].items()):
+        raise Blocked('Pre-existing host policy changed; no removal')
     if state.get('owned') is True:
-        if state.get('phase')!='loaded' or current.get(policy.PROFILE)!={'mode':'enforce','sha256':state['compiled']['binary_sha256']}:raise Blocked('Cleanup policy ownership/identity conflict; no removal')
+        phase=state.get('phase')
+        present=policy.PROFILE in current
+        if phase not in ('loaded','removal_pending') or (present and current[policy.PROFILE]!={'mode':'enforce','sha256':state['compiled']['binary_sha256']}) or (not present and phase!='removal_pending'):
+            raise Blocked('Cleanup policy ownership/identity conflict; no removal')
         binary=directory/'profile.bin'
-        if binary.is_symlink() or hashlib.sha256(binary.read_bytes()).hexdigest()!=state['compiled']['binary_sha256']:raise Blocked('Cleanup binary conflict')
+        if binary.is_symlink() or (binary.exists() and hashlib.sha256(binary.read_bytes()).hexdigest()!=state['compiled']['binary_sha256']) or (not binary.exists() and present):raise Blocked('Cleanup binary conflict')
         # Refuse profile removal while any live container (owned or foreign) uses it.
         ids=command(['docker','ps','-aq'],limit=65536).decode().split()
         if ids:
             containers=json.loads(command(['docker','inspect',*ids],limit=4*1024*1024))
             if any(c.get('AppArmorProfile')==policy.PROFILE for c in containers):raise Blocked('Attached containers remain; no policy removal')
-        command([trusted_parser(),'--config-file','/dev/null','--skip-cache','--remove','--binary',str(binary)])
+        if present:
+            # Parser 4 process_binary only accepts ADD/REPLACE. REMOVE needs source;
+            # it removes parsed names, not a binary hash. Identity is guarded above.
+            parser=trusted_parser()
+            source=directory/'remove.apparmor'
+            content=('profile '+policy.PROFILE+' { }\n').encode('ascii')
+            if not source.exists():
+                fd=os.open(source,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+                with os.fdopen(fd,'wb') as stream:stream.write(content)
+            if source.is_symlink() or source.read_bytes()!=content:raise Blocked('Removal source conflict')
+            options=[parser,'--config-file','/dev/null','--skip-cache','--jobs','1','--max-jobs','1']
+            names=command([*options,'--skip-kernel-load','--names',str(source)],limit=1024).decode().splitlines()
+            if names!=[policy.PROFILE]:raise Blocked('Removal source names differ; no removal')
+            # Recheck immediately before the write and retain intent across partial cleanup.
+            if loaded_profile(policy.PROFILE)!=state['compiled']['binary_sha256']:raise Blocked('Policy changed before removal')
+            state['phase']='removal_pending';write_state(directory,state)
+            command([*options,'--remove',str(source)])
         if policy.PROFILE in inventory():raise Blocked('Owned policy survives removal')
     elif policy.PROFILE in current:
         raise Blocked('Uncertain load ownership; never remove an unreceipted policy')
     preserve_profiles(state['before'])
     # Only our two known files and exclusive directory; never recurse over host paths.
     (directory/'profile.bin').unlink(missing_ok=True)
+    (directory/'remove.apparmor').unlink(missing_ok=True)
     (directory/'receipt.json').unlink();directory.rmdir()
     return dict(status='PASS',owned_profile_removed=state.get('owned') is True,preexisting_profiles_preserved=True)
 

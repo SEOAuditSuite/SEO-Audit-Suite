@@ -289,9 +289,116 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
     def test_lineage_and_no_upload_workflow_preserved(self):
         manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
-        self.assertEqual(manifest['parent'],'ef0dfc6e6d9a12aca3f8319c2ca2634bbead17b1')
+        self.assertEqual(manifest['parent'],'89ac410c49b036c3866be411c57079a4b90af9ab')
         self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
         self.assertIn('fetch-depth: 8',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+
+
+class RecoveryDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        from validation.c3c import sandbox_probe
+        self.probe=sandbox_probe
+    def test_every_postlaunch_stage_reports_timeout_stderr_and_processes(self):
+        from unittest.mock import Mock
+        phases=('playwright_connection','browser_launch','browser_version','sandbox_context','sandbox_page_creation',
+                'sandbox_navigation','sandbox_text','sandbox_verification','secure_context',
+                'synthetic_page_creation','synthetic_content','dom_extraction','browser_close','playwright_close')
+        for phase in phases:
+            out=io.StringIO();terminate=Mock();stderr=Mock()
+            deadline=self.probe.ProbeDeadline(0,stderr,terminate=terminate)
+            deadline.name=phase;deadline.phase_deadline=1;deadline.stop.wait=Mock(return_value=False)
+            with patch.object(self.probe.time,'monotonic',return_value=2),patch.object(self.probe,'process_snapshot',return_value={'status':'OBSERVED','processes':[]}),contextlib.redirect_stdout(out):deadline.watch()
+            self.assertIn('"phase": "'+phase+'"',out.getvalue());self.assertIn('TIMEOUT',out.getvalue())
+            self.assertIn('processes',out.getvalue());self.assertNotIn('"status": "PASS"',out.getvalue())
+            stderr.assert_called_once();terminate.assert_called_once_with(124)
+    def test_phase_failure_preserves_original_error_and_redacts(self):
+        out=io.StringIO();error=RuntimeError('token=hidden')
+        progress=self.probe.ProbeDeadline(0,lambda:None)
+        with patch.object(self.probe,'process_snapshot',return_value={'status':'NOT VERIFIED'}),contextlib.redirect_stdout(out):
+            with self.assertRaises(RuntimeError) as caught:
+                progress.call('dom_extraction',lambda:(_ for _ in ()).throw(error))
+        self.assertIs(caught.exception,error);self.assertIn('FAIL',out.getvalue());self.assertNotIn('hidden',out.getvalue())
+    def test_launch_timeout_uses_remaining_phase_budget(self):
+        from unittest.mock import Mock
+        target=Mock();progress=Mock();progress.remaining_ms.return_value=1234
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.probe.ObservedChromium(target,progress).launch(chromium_sandbox=True,timeout=30000)
+        self.assertEqual(target.launch.call_args.kwargs,dict(chromium_sandbox=True,timeout=1234))
+    def test_global_budget_caps_phase_and_never_resets(self):
+        progress=self.probe.ProbeDeadline(10,lambda:None)
+        with patch.object(self.probe.time,'monotonic',return_value=43),contextlib.redirect_stdout(io.StringIO()):
+            with progress.phase('sandbox_navigation',5):self.assertEqual(progress.remaining_ms(),1000)
+        self.assertEqual(progress.deadline,44)
+    def test_real_stalled_child_emits_phase_before_hard_exit(self):
+        script="""import time
+from validation.c3c.sandbox_probe import ProbeDeadline,emit,sanitize
+with ProbeDeadline(time.monotonic(),lambda:emit('driver_stderr',text=sanitize('token=hidden')),total=.25) as p:
+    with p.phase('synthetic_page_creation',.1):time.sleep(5)
+"""
+        result=subprocess.run([sys.executable,'-c',script],cwd=ROOT,capture_output=True,text=True,timeout=3)
+        self.assertEqual(result.returncode,124);self.assertIn('TIMEOUT',result.stdout)
+        self.assertIn('synthetic_page_creation',result.stdout);self.assertIn('driver_stderr',result.stdout)
+        self.assertIn('processes',result.stdout);self.assertNotIn('hidden',result.stdout)
+    @unittest.skipUnless(sys.platform=='linux','Actual fd2 pipe/select capture requires Linux')
+    def test_real_stall_retains_actual_driver_pipe_stderr(self):
+        script="""import os,time
+from validation.c3c.sandbox_probe import ProbeDeadline,driver_diagnostics
+with driver_diagnostics() as stderr, ProbeDeadline(time.monotonic(),stderr,total=1) as p:
+    os.write(2,b'token=hidden\\nrenderer stalled\\n')
+    with p.phase('sandbox_page_creation',.3):time.sleep(5)
+"""
+        result=subprocess.run([sys.executable,'-c',script],cwd=ROOT,capture_output=True,text=True,timeout=3)
+        self.assertEqual(result.returncode,124);self.assertIn('renderer stalled',result.stdout)
+        self.assertIn('TIMEOUT',result.stdout);self.assertNotIn('hidden',result.stdout)
+    def test_process_snapshot_never_reads_commands_or_environment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);entry=root/'123';entry.mkdir()
+            (entry/'status').write_text('Name:\tchromium\nState:\tS\nPPid:\t1\nThreads:\t2\n')
+            (entry/'wchan').write_text('futex_wait')
+            (entry/'cmdline').write_text('token=hidden');(entry/'environ').write_text('secret=hidden')
+            report=self.probe.process_snapshot(root)
+            self.assertEqual(report['processes'][0]['PPid'],'1');self.assertNotIn('hidden',json.dumps(report))
+    def test_watchdog_starts_after_single_threaded_negative_checks(self):
+        source=Path(self.probe.__file__).read_text()
+        self.assertLess(source.index('    run_checks()'),source.index('ProbeDeadline(started,stderr)'))
+        self.assertIn('timeout=40',Path(run.__file__).read_text())
+    def modeled_probe(self,sandbox=True,close_error=False):
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from validation.c3c import namespace_diagnostics as ns
+        browser=Mock();browser.version='156.0.8078.4';context=browser.new_context.return_value
+        page=context.new_page.return_value
+        body=Mock();body.inner_text.return_value='You are adequately sandboxed Seccomp-BPF sandbox Yes' if sandbox else 'unknown'
+        body.get_attribute.return_value='yes';heading=Mock();heading.inner_text.return_value='Fixture'
+        page.locator.side_effect=lambda name:heading if name=='h1' else body
+        if close_error:browser.close.side_effect=RuntimeError('close failed')
+        manager=Mock();playwright=Mock();playwright.chromium.launch.return_value=browser;manager.__enter__=Mock(return_value=playwright);manager.__exit__=Mock(return_value=False)
+        modules={'deployment.c3c.build_verify':SimpleNamespace(verify=Mock()),
+                 'playwright':SimpleNamespace(),'playwright.sync_api':SimpleNamespace(sync_playwright=lambda:manager),
+                 'browser_isolation':SimpleNamespace(launch_browser=lambda p:p.chromium.launch(chromium_sandbox=True),secure_context=lambda *a,**k:context)}
+        out=io.StringIO()
+        def read(path,*args,**kw):return '1024' if str(path).endswith('memory.max') else 'NoNewPrivs:\t1\nCapEff:\t0000\n'
+        with patch.dict(sys.modules,modules),patch.object(os,'getuid',return_value=10001,create=True),patch.object(os,'getgid',return_value=10001,create=True),patch.object(self.probe.Path,'is_file',return_value=True),patch.object(self.probe.Path,'read_text',autospec=True,side_effect=read),patch.object(self.probe,'snapshot'),patch.object(ns,'run_checks'),patch.object(self.probe,'driver_diagnostics',return_value=contextlib.nullcontext(lambda:None)),patch.object(self.probe,'process_snapshot',return_value={'status':'NOT VERIFIED'}),contextlib.redirect_stdout(out):
+            try:self.probe.main();error=None
+            except RuntimeError as exc:error=exc
+        return out.getvalue(),error,browser,page
+    def test_complete_modeled_sequence_keeps_positive_gates_and_close_phases(self):
+        output,error,browser,page=self.modeled_probe()
+        self.assertIsNone(error);self.assertIn('"kind": "sandbox_page", "status": "PASS"',output)
+        self.assertIn('dom_extraction',output);self.assertIn('playwright_close',output)
+        self.assertEqual(browser.close.call_count,1)
+        self.assertEqual(page.goto.call_args.args[0],'chrome://sandbox')
+        self.assertLessEqual(page.goto.call_args.kwargs['timeout'],5000)
+    def test_negative_sandbox_stops_before_synthetic_dom(self):
+        output,error,browser,page=self.modeled_probe(sandbox=False)
+        self.assertIsNotNone(error);self.assertIn('sandbox_verification',output)
+        self.assertNotIn('synthetic_dom',output);page.set_content.assert_not_called()
+        browser.close.assert_called_once()
+    def test_close_failure_never_emits_final_probe_success(self):
+        output,error,_,_=self.modeled_probe(close_error=True)
+        self.assertIsNotNone(error);self.assertIn('"phase": "browser_close", "status": "FAIL"',output)
+        self.assertNotIn('"synthetic_secure_context": true',output)
 
 
 if __name__=='__main__':unittest.main()

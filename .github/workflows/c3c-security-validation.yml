@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   validate:
-    if: github.run_attempt == 1 && github.event.deleted == false && github.event.repository.private == false && github.event.before == 'ef0dfc6e6d9a12aca3f8319c2ca2634bbead17b1'
+    if: github.run_attempt == 1 && github.event.deleted == false && github.event.repository.private == false && github.event.before == '89ac410c49b036c3866be411c57079a4b90af9ab'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:

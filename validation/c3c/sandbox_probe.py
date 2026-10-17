@@ -7,6 +7,7 @@ import sys
 import contextlib
 import select
 import threading
+import time
 
 
 sys.path.insert(0,'/app')
@@ -39,10 +40,12 @@ def exit_evidence(message):
 
 class ObservedChromium:
     """Observe the existing launch attempts without modifying options or exceptions."""
-    def __init__(self, target): self.target=target
+    def __init__(self, target, progress=None): self.target=target;self.progress=progress
     def __getattr__(self, name): return getattr(self.target, name)
     def launch(self, **kwargs):
         attempt='system_chrome' if kwargs.get('channel')=='chrome' else 'pinned_chromium'
+        if self.progress is not None:
+            kwargs['timeout']=min(kwargs.get('timeout',30000),self.progress.remaining_ms())
         try:
             browser=self.target.launch(**kwargs)
             emit('launch', attempt=attempt, status='STARTED')
@@ -59,8 +62,8 @@ class ObservedChromium:
 
 
 class ObservedPlaywright:
-    def __init__(self, target):
-        self.target=target; self.chromium=ObservedChromium(target.chromium)
+    def __init__(self, target, progress=None):
+        self.target=target; self.chromium=ObservedChromium(target.chromium,progress)
     def __getattr__(self, name): return getattr(self.target, name)
 
 
@@ -104,7 +107,10 @@ def driver_diagnostics():
     try:
         os.environ['DEBUG']='pw:browser'
         thread.start();os.dup2(write_fd,2);os.close(write_fd);write_fd=None
-        yield
+        def report():
+            emit('driver_stderr', text=''.join(list(retained))[-8192:], truncated=truncated,
+                 capture_complete=False, limit_characters=8192)
+        yield report
     finally:
         os.dup2(saved,2);os.close(saved)
         if write_fd is not None:os.close(write_fd)
@@ -113,6 +119,65 @@ def driver_diagnostics():
         stop.set();thread.join(timeout=2)
         emit('driver_stderr', text=''.join(retained), truncated=truncated,
              capture_complete=not thread.is_alive(), limit_characters=8192)
+
+
+def process_snapshot(root=Path('/proc')):
+    """Container-local allowlist: no command lines, environments, URLs or host scans."""
+    rows=[]
+    try:
+        for item in root.iterdir():
+            if not item.name.isdigit():continue
+            if len(rows)>=64:break
+            row={'pid':int(item.name)}
+            try:
+                raw=(item/'status').read_text()[:8192]
+                for key in ('Name','State','PPid','Threads','NoNewPrivs','Seccomp'):
+                    match=re.search(r'^'+key+r':\s*(.*)$',raw,re.M)
+                    if match:row[key]=sanitize(match[1],96)
+                row['wchan']=sanitize((item/'wchan').read_text()[:128],128)
+            except OSError:row['status']='NOT VERIFIED'
+            rows.append(row)
+    except OSError:return {'status':'NOT VERIFIED','processes':rows}
+    return {'status':'OBSERVED','processes':rows,'maximum':64}
+
+
+class ProbeDeadline:
+    """Hard stop for synchronous APIs lacking timeout options; parent owns cleanup.
+
+    Started only after the single-threaded negative namespace checks. The 34s
+    absolute budget starts at probe entry, inside the unchanged 40s Docker budget.
+    """
+    def __init__(self, started, stderr, total=34, terminate=os._exit):
+        self.started=started;self.deadline=started+total;self.stderr=stderr
+        self.terminate=terminate;self.stop=threading.Event();self.lock=threading.Lock()
+        self.name='post_namespace';self.phase_deadline=self.deadline
+        self.thread=threading.Thread(target=self.watch,daemon=True)
+    def __enter__(self):self.thread.start();return self
+    def __exit__(self,*exc):self.stop.set();self.thread.join(timeout=.2)
+    def remaining_ms(self):
+        with self.lock:end=min(self.deadline,self.phase_deadline)
+        return max(1,int((end-time.monotonic())*1000))
+    def watch(self):
+        while not self.stop.wait(.05):
+            with self.lock:name=self.name;end=min(self.deadline,self.phase_deadline)
+            if time.monotonic()<end:continue
+            emit('phase',phase=name,status='TIMEOUT',elapsed_seconds=round(time.monotonic()-self.started,3))
+            self.stderr();emit('processes',**process_snapshot())
+            self.terminate(124);return
+    @contextlib.contextmanager
+    def phase(self,name,seconds=5):
+        begin=time.monotonic()
+        with self.lock:self.name=name;self.phase_deadline=min(self.deadline,begin+seconds)
+        emit('phase',phase=name,status='BEGIN',remaining_ms=self.remaining_ms())
+        try:yield
+        except BaseException as exc:
+            emit('phase',phase=name,status='FAIL',exception_type=type(exc).__name__,exception=sanitize(exc,512))
+            emit('processes',**process_snapshot());raise
+        else:emit('phase',phase=name,status='PASS',elapsed_seconds=round(time.monotonic()-begin,3))
+        finally:
+            with self.lock:self.name='between_phases';self.phase_deadline=self.deadline
+    def call(self,name,fn,seconds=5):
+        with self.phase(name,seconds):return fn()
 
 
 def snapshot():
@@ -153,6 +218,7 @@ def snapshot():
 
 
 def main():
+    started=time.monotonic()
     if not Path('/.dockerenv').is_file() or os.getuid()!=10001 or os.getgid()!=10001:
         raise RuntimeError('Real non-root worker container required')
     status=Path('/proc/self/status').read_text()
@@ -168,30 +234,40 @@ def main():
     snapshot()
     from validation.c3c.namespace_diagnostics import run_checks
     run_checks()
-    with driver_diagnostics(), sync_playwright() as playwright:
-        playwright=ObservedPlaywright(playwright)
-        browser=launch_browser(playwright)
+    with driver_diagnostics() as stderr, ProbeDeadline(started,stderr) as progress:
+        # Explicit entry/exit phases distinguish driver connection from browser launch.
+        manager=sync_playwright()
+        playwright=progress.call('playwright_connection',manager.__enter__)
         try:
-            if browser.version!='156.0.8078.4': raise RuntimeError('Unexpected Chromium version')
-            context=browser.new_context()
+            playwright=ObservedPlaywright(playwright,progress)
+            browser=progress.call('browser_launch',lambda:launch_browser(playwright),10)
             try:
-                page=context.new_page();page.goto('chrome://sandbox',timeout=10000)
-                text=page.locator('body').inner_text()
-                if 'You are adequately sandboxed' not in text or not re.search(r'Seccomp-BPF sandbox\s+Yes',text):
-                    raise RuntimeError('Chromium did not positively report the required sandbox')
-                emit('sandbox_page',status='PASS',evidence='Positive Chromium sandbox page and Seccomp-BPF sandbox Yes')
-            finally: context.close()
-            context=secure_context(browser,user_agent='C3C synthetic acceptance',viewport={'width':800,'height':600})
-            try:
-                page=context.new_page();page.set_content('<h1>Fixture</h1><a href="/next">Next</a><script>document.body.dataset.js="yes"</script>')
-                if page.locator('h1').inner_text()!='Fixture' or page.locator('body').get_attribute('data-js')!='yes':
-                    raise RuntimeError('Original secure context integration failed')
-                emit('synthetic_dom',status='PASS',scope='Local synthetic JavaScript rendering in original secure context; no external network claim')
-            finally: context.close()
-            print(json.dumps(dict(status='PASS',uid=os.getuid(),browser_version=browser.version,
-                  sandbox='positive chrome://sandbox evidence',synthetic_secure_context=True,
-                  scope='No broker/network/mTLS or whole-host containment certification')))
-        finally: browser.close()
+                version=progress.call('browser_version',lambda:browser.version)
+                if version!='156.0.8078.4': raise RuntimeError('Unexpected Chromium version')
+                context=progress.call('sandbox_context',browser.new_context)
+                try:
+                    page=progress.call('sandbox_page_creation',context.new_page)
+                    progress.call('sandbox_navigation',lambda:page.goto('chrome://sandbox',timeout=progress.remaining_ms()))
+                    text=progress.call('sandbox_text',lambda:page.locator('body').inner_text(timeout=progress.remaining_ms()))
+                    with progress.phase('sandbox_verification'):
+                        if 'You are adequately sandboxed' not in text or not re.search(r'Seccomp-BPF sandbox\s+Yes',text):
+                            raise RuntimeError('Chromium did not positively report the required sandbox')
+                    emit('sandbox_page',status='PASS',evidence='Positive Chromium sandbox page and Seccomp-BPF sandbox Yes')
+                finally: progress.call('sandbox_context_close',context.close,2)
+                context=progress.call('secure_context',lambda:secure_context(browser,user_agent='C3C synthetic acceptance',viewport={'width':800,'height':600}))
+                try:
+                    page=progress.call('synthetic_page_creation',context.new_page)
+                    progress.call('synthetic_content',lambda:page.set_content('<h1>Fixture</h1><a href="/next">Next</a><script>document.body.dataset.js="yes"</script>',timeout=progress.remaining_ms()))
+                    with progress.phase('dom_extraction'):
+                        if page.locator('h1').inner_text(timeout=progress.remaining_ms())!='Fixture' or page.locator('body').get_attribute('data-js',timeout=progress.remaining_ms())!='yes':
+                            raise RuntimeError('Original secure context integration failed')
+                    emit('synthetic_dom',status='PASS',scope='Local synthetic JavaScript rendering in original secure context; no external network claim')
+                finally: progress.call('secure_context_close',context.close,2)
+            finally: progress.call('browser_close',browser.close,2)
+        finally: progress.call('playwright_close',lambda:manager.__exit__(None,None,None),2)
+        print(json.dumps(dict(status='PASS',uid=os.getuid(),browser_version=version,
+                    sandbox='positive chrome://sandbox evidence',synthetic_secure_context=True,
+                    scope='No broker/network/mTLS or whole-host containment certification')))
 
 
 if __name__=='__main__':

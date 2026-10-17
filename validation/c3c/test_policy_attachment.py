@@ -227,11 +227,13 @@ class SameRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             directory,state=self.state(folder)
             current=dict(state['before']);current[a.policy.PROFILE]=dict(mode='enforce',sha256=state['compiled']['binary_sha256'])
-            with patch.object(a,'read_state',return_value=(directory,state)),patch.object(a,'state_directory',return_value=directory),patch.object(a,'inventory',side_effect=[current,state['before'],state['before']]),patch.object(a,'trusted_parser',return_value='/trusted/parser'),patch.object(a,'command',return_value=b'') as command:
+            def execute(args,**kwargs):return (a.policy.PROFILE+'\n').encode() if '--names' in args else b''
+            with patch.object(a,'read_state',return_value=(directory,state)),patch.object(a,'state_directory',return_value=directory),patch.object(a,'inventory',side_effect=[current,state['before'],state['before']]),patch.object(a,'loaded_profile',return_value=state['compiled']['binary_sha256']),patch.object(a,'trusted_parser',return_value='/trusted/parser'),patch.object(a,'command',side_effect=execute) as command:
                 result=a.cleanup_job('123-1')
             self.assertTrue(result['owned_profile_removed']);self.assertFalse(directory.exists())
             calls=[c.args[0] for c in command.call_args_list]
-            self.assertEqual(calls[1],['/trusted/parser','--config-file','/dev/null','--skip-cache','--remove','--binary',str(directory/'profile.bin')])
+            self.assertEqual(calls[2],['/trusted/parser','--config-file','/dev/null','--skip-cache','--jobs','1','--max-jobs','1','--remove',str(directory/'remove.apparmor')])
+            self.assertIn('--names',calls[1]);self.assertNotIn('--binary',calls[2])
     def test_cleanup_refuses_unreceipted_policy_after_uncertain_load(self):
         with tempfile.TemporaryDirectory() as folder:
             directory,state=self.state(folder,False)
@@ -293,7 +295,7 @@ class SameRunnerTests(unittest.TestCase):
         source=Path(run.__file__).read_text()
         self.assertIn("if browser['status']=='PASS':stage('native_container_broker_ipc'",source)
         probe=(run.ROOT/'validation/c3c/sandbox_probe.py').read_text()
-        self.assertLess(probe.index('    run_checks()'),probe.index('        browser=launch_browser'))
+        self.assertLess(probe.index('    run_checks()'),probe.index("browser=progress.call('browser_launch'"))
     def test_all_outer_capability_sets_must_be_empty(self):
         status='Seccomp:\t2\nNoNewPrivs:\t1\n'+''.join(n+':\t'+('1' if n=='CapPrm' else '0')+'\n' for n in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb'))
         def read(path):return a.policy.PROFILE+' (enforce)' if str(path).endswith('/attr/current') else status
@@ -312,6 +314,105 @@ class SameRunnerTests(unittest.TestCase):
         self.assertLess(text.index('--prepare-job'),text.index('--execute'));self.assertLess(text.index('run.py --cleanup'),text.index('--cleanup-job'))
         for forbidden in ('upload-artifact','actions/cache','workflow_dispatch','seccomp=unconfined','--no-sandbox','--replace','apt-get','cache:'):
             self.assertNotIn(forbidden,text)
+
+
+class CleanupRecoveryTests(unittest.TestCase):
+    """Mocked kernel/parser lifecycle only; no native removal claim."""
+    def setUp(self):
+        self.folder=self.enterContext(tempfile.TemporaryDirectory())
+        self.directory=Path(self.folder)/'owned';self.directory.mkdir()
+        self.binary=b'synthetic identity';(self.directory/'profile.bin').write_bytes(self.binary)
+        self.before={'docker-default':dict(mode='enforce',sha256='c'*64)}
+        self.state=dict(job='123-1',profile=a.policy.PROFILE,owned=True,phase='loaded',before=self.before,
+                        compiled=dict(binary_sha256=hashlib.sha256(self.binary).hexdigest()))
+        self.current=copy.deepcopy(self.before);self.current[a.policy.PROFILE]=dict(mode='enforce',sha256=self.state['compiled']['binary_sha256'])
+        self.enterContext(patch.object(a.os,'O_NOFOLLOW',getattr(os,'O_NOFOLLOW',0),create=True))
+        self.enterContext(patch.object(a,'state_directory',return_value=self.directory))
+        self.enterContext(patch.object(a,'read_state',side_effect=lambda job:(self.directory,self.state)))
+        self.enterContext(patch.object(a,'inventory',side_effect=lambda:copy.deepcopy(self.current)))
+        self.enterContext(patch.object(a,'loaded_profile',side_effect=lambda name:self.current[name]['sha256']))
+        self.enterContext(patch.object(a,'trusted_parser',return_value='/trusted/parser'))
+        self.commands=self.enterContext(patch.object(a,'command',side_effect=self.execute))
+        self.writes=self.enterContext(patch.object(a,'write_state'))
+    def execute(self,args,**kwargs):
+        if '--names' in args:return (a.policy.PROFILE+'\n').encode()
+        if '--remove' in args:self.current.pop(a.policy.PROFILE)
+        return b''
+    def run_cleanup(self):
+        # Minimal fixture receipt, without claiming POSIX receipt permissions on Windows.
+        (self.directory/'receipt.json').write_text('{}')
+        return a.cleanup_job('123-1')
+    def removals(self):return [c.args[0] for c in self.commands.call_args_list if '--remove' in c.args[0]]
+    def test_correct_source_removal_and_repeated_cleanup(self):
+        self.assertEqual(self.run_cleanup()['status'],'PASS');self.assertEqual(len(self.removals()),1)
+        self.assertNotIn('--binary',self.removals()[0]);self.assertTrue(self.removals()[0][-1].endswith('remove.apparmor'))
+        self.assertEqual(a.cleanup_job('123-1')['status'],'PASS');self.assertEqual(len(self.removals()),1)
+    def test_identity_mismatch_never_removes(self):
+        self.current[a.policy.PROFILE]['sha256']='f'*64
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.assert_not_called()
+    def test_preexisting_target_never_removed_even_with_owned_receipt(self):
+        self.state['before'][a.policy.PROFILE]=self.current[a.policy.PROFILE]
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.assert_not_called()
+    def test_unload_failure_retains_receipt_and_no_success(self):
+        def execute(args,**kwargs):
+            if '--remove' in args:raise a.Blocked('parser failed')
+            return self.execute(args,**kwargs)
+        self.commands.side_effect=execute
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.assertTrue((self.directory/'receipt.json').exists());self.assertEqual(self.state['phase'],'removal_pending')
+    def test_success_exit_without_absence_is_not_success(self):
+        self.commands.side_effect=lambda args,**kw:(a.policy.PROFILE+'\n').encode() if '--names' in args else b''
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.assertTrue(self.directory.exists())
+    def test_partial_remove_then_parser_error_can_verify_absence_on_retry(self):
+        def execute(args,**kwargs):
+            result=self.execute(args,**kwargs)
+            if '--remove' in args:raise a.Blocked('lost response after removal')
+            return result
+        self.commands.side_effect=execute
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.side_effect=self.execute
+        self.assertEqual(a.cleanup_job('123-1')['status'],'PASS');self.assertEqual(len(self.removals()),1)
+    def test_replacement_after_partial_cleanup_never_removed(self):
+        self.state['phase']='removal_pending';self.current[a.policy.PROFILE]['sha256']='f'*64
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.assert_not_called()
+    def test_ambiguous_or_foreign_source_names_never_removed(self):
+        self.commands.side_effect=lambda args,**kw:b'foreign\n' if '--names' in args else b''
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.assertFalse(self.removals())
+    def test_preexisting_change_after_removal_fails_closed(self):
+        def execute(args,**kwargs):
+            result=self.execute(args,**kwargs)
+            if '--remove' in args:self.current['docker-default']['sha256']='f'*64
+            return result
+        self.commands.side_effect=execute
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.assertTrue((self.directory/'receipt.json').exists())
+    def test_private_binary_change_never_removed(self):
+        (self.directory/'profile.bin').write_bytes(b'changed')
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.assert_not_called()
+    def test_identity_change_between_names_and_unload_never_removed(self):
+        with patch.object(a,'loaded_profile',return_value='f'*64):
+            with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.assertFalse(self.removals())
+    def test_unexplained_absence_before_unload_intent_is_failure(self):
+        self.current.pop(a.policy.PROFILE)
+        with self.assertRaises(a.Blocked):self.run_cleanup()
+        self.commands.assert_not_called()
+    def test_partial_private_file_cleanup_retries_without_second_unload(self):
+        original=Path.unlink
+        def unlink(path,*args,**kwargs):
+            if path.name=='remove.apparmor':raise OSError('synthetic private-file cleanup failure')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'unlink',autospec=True,side_effect=unlink):
+            with self.assertRaises(OSError):self.run_cleanup()
+        self.assertFalse((self.directory/'profile.bin').exists())
+        self.assertTrue((self.directory/'receipt.json').exists())
+        self.assertEqual(a.cleanup_job('123-1')['status'],'PASS');self.assertEqual(len(self.removals()),1)
 
 
 if __name__=='__main__':unittest.main()
