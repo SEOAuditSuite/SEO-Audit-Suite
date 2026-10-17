@@ -18,16 +18,34 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = '6567331ab940a79982eed5a53d7e460b0fd59919'
+DIAGNOSTIC_PARENT = 'ef0dfc6e6d9a12aca3f8319c2ca2634bbead17b1'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
            '.github/workflows/c3c-security-validation.yml',
            'validation/c3c/source-manifest.json', 'validation/c3c/run.py'}
 RESULTS = []
+OWNED_NONCES = set()
+OWNED_IMAGES = set()
+sys.path.insert(0,str(ROOT))
+from validation.c3c import policy_attachment as sandbox_attachment
 
 
 def command(args, timeout=60, cwd=ROOT, capture=False, data=None):
+    if args[:2] in (['docker','create'],['docker','run']):remember_container(args[2:])
+    if args[:3]==['docker','volume','create']:
+        name=args[-1];match=re.fullmatch(r'c3c-([a-f0-9]{32})-ipc',name)
+        if not match or 'seo.c3c.job='+match[1] not in args or 'seo.c3c.managed=true' not in args:raise RuntimeError('Invalid volume ownership intent')
+        require_absent_object('volume',name)
+        OWNED_NONCES.add(match[1]);save_ownership()
+    image_reference=None
+    if args[:2]==['docker','build']:
+        image_reference=args[args.index('-t')+1]
+        require_absent_image(image_reference)
+    elif args[:2]==['docker','pull']:
+        reference=args[-1]
+        if not image_exists(reference):image_reference=reference
+    if image_reference:remember_image(image_reference)
     result = subprocess.run(args, cwd=cwd, input=data, text=True,
                             stdout=subprocess.PIPE if capture else None,
                             stderr=None, timeout=timeout, check=True)
@@ -41,6 +59,7 @@ def safety():
     assert set(candidate['sha256'])==set(candidate['changed_paths'])-{'validation/c3c/candidate-manifest.json'}
     for name,digest in candidate['sha256'].items():
         assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest()==digest,name
+    sandbox_attachment.verify_package()
     corrections = json.loads((ROOT/'validation/c3c/compatibility-corrections.json').read_text())
     assert set(corrections)=={'deployment/c3c/native_runner.py','deployment/c3c/supervisor.py'}
     assert manifest['baseline'] == BASE
@@ -57,11 +76,15 @@ def safety():
             assert hashlib.sha256(data).hexdigest() == digest, name
     workflow = (ROOT/'.github/workflows/c3c-security-validation.yml').read_text()
     generic = (ROOT/'.github/workflows/python-check.yml').read_text()
+    assert 'fetch-depth: 8' in workflow
+    assert workflow.index('--prepare-job') < workflow.index('780s python -u validation/c3c/run.py --execute') < workflow.index('--cleanup-job')
+    assert "if: always()" in workflow and '--cleanup' in workflow
+    assert '--replace' not in workflow and 'sudo -n -- /usr/bin/python3 -I' in workflow
     checks = {
         'exact_branch_push_only': 'branches: ['+BRANCH+']' in workflow and workflow.count('  push:') == 1 and not any(x in workflow for x in ('workflow_dispatch', 'pull_request', 'schedule:')),
         'standard_ubuntu_only': workflow.count('runs-on: ubuntu-24.04') == 1 and 'container:' not in workflow,
         'read_only_permissions': 'permissions:\n  contents: read\n' in workflow and workflow.count('permissions:') == 1,
-        'bounded_runtime': 'timeout-minutes: 20' in workflow and '1050s' in workflow,
+        'bounded_runtime': 'timeout-minutes: 20' in workflow and '780s' in workflow,
         'no_persistent_uploads': not any(x in workflow.lower() for x in ('upload-artifact', 'actions/cache', 'cache:', 'cache-to', 'push: true', 'snapshot:', 'packages:')),
         'no_production_secrets': not re.search(r'secrets\s*[.\[]', workflow),
         'no_persisted_credentials': 'persist-credentials: false' in workflow,
@@ -76,6 +99,9 @@ def safety():
         assert os.environ['GITHUB_REF'] == 'refs/heads/'+BRANCH
         assert os.environ['GITHUB_RUN_ATTEMPT'] == '1'
         assert command(['git', 'rev-parse', 'HEAD^'], capture=True).strip() == DIAGNOSTIC_PARENT
+        assert event_before() == DIAGNOSTIC_PARENT
+        assert command(['git','merge-base','--is-ancestor',BASE,'HEAD'],capture=True)==''
+        assert command(['git','ls-remote','https://github.com/SEOAuditSuite/SEO-Audit-Suite.git','refs/heads/main'],capture=True).split()[0]==BASE
         diagnostic_changes = set(command(['git', 'diff', '--name-only', 'HEAD^', 'HEAD'], capture=True).splitlines())
         candidate=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
         assert diagnostic_changes == set(candidate['changed_paths'])
@@ -87,12 +113,70 @@ def safety():
     print('PASS: 128 source hashes with two explicitly verified logging-only corrections; 11 workflow safety checks', flush=True)
 
 
+def event_before():return json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())['before']
+
+
+def ownership_path():
+    job=os.environ.get('C3C_POLICY_JOB')
+    if not job:return None
+    sandbox_attachment.state_directory(job)
+    return Path(os.environ['RUNNER_TEMP'])/('c3c-owned-'+job+'.json')
+
+
+def save_ownership():
+    path=ownership_path()
+    if path is None:return
+    if path.is_symlink():raise RuntimeError('Unsafe job ownership receipt')
+    with path.open('w') as stream:json.dump(dict(nonces=sorted(OWNED_NONCES),images=sorted(OWNED_IMAGES)),stream)
+    path.chmod(0o600)
+
+
+def remember_container(args):
+    name=args[args.index('--name')+1]
+    match=re.fullmatch(r'c3c-([a-f0-9]{32})-(worker|broker)',name)
+    if not match or 'seo.c3c.job='+match[1] not in args or 'seo.c3c.managed=true' not in args:raise RuntimeError('Invalid job ownership intent')
+    if ownership_path() is not None:
+        require_absent_object('container',name)
+    # UUID identity is recorded before create, including failed/timed-out creation.
+    OWNED_NONCES.add(match[1]);save_ownership()
+
+
+def image_exists(reference):
+    return not object_absent('image',reference)
+
+
+def object_absent(kind,reference):
+    with tempfile.TemporaryFile() as errors:
+        result=subprocess.run(['docker',kind,'inspect',reference],stdout=subprocess.DEVNULL,stderr=errors,timeout=10)
+        errors.seek(0);error=errors.read(4097).decode(errors='replace')
+    if result.returncode==0:return False
+    expected={'image':'No such image:','container':'No such container:','volume':'No such volume:'}[kind]
+    # Docker container inspect reports "No such container"; generic object errors are also documented.
+    if result.returncode==1 and len(error)<=4096 and (expected+' '+reference in error or 'No such object: '+reference in error):return True
+    raise RuntimeError('Ownership inventory failed; absence not demonstrated')
+
+
+def require_absent_object(kind,reference):
+    if not object_absent(kind,reference):raise RuntimeError('Refuse to adopt pre-existing '+kind)
+
+
+def require_absent_image(reference):
+    if image_exists(reference):raise RuntimeError('Refuse to overwrite a pre-existing validation image tag')
+
+
+def remember_image(reference):
+    if not re.fullmatch(r'(?:c3c-(?:resource-fixture|worker|broker):local|python:3.12-slim|mcr\.microsoft\.com/playwright(?:/python)?@sha256:[a-f0-9]{64})',reference):raise RuntimeError('Unreviewed image reference')
+    OWNED_IMAGES.add(reference);save_ownership()
+
+
 def stage(name, operation):
     try:
         evidence = operation()
         record = {'stage': name, 'status': 'PASS', 'evidence': evidence}
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         record = {'stage': name, 'status': 'NOT VERIFIED', 'error': type(exc).__name__}
+    except sandbox_attachment.Blocked as exc:
+        record = {'stage':name,'status':'NOT VERIFIED','detail':sanitize(str(exc),1024)}
     except ImageUnavailable as exc:
         record = {'stage': name, 'status': 'NOT VERIFIED', 'error': type(exc).__name__, 'detail': str(exc)}
     except Exception as exc:
@@ -182,10 +266,11 @@ def diagnostic_runtime():
     from deployment.c3c.supervisor import Runtime
     class DiagnosticRuntime(Runtime):
         def call(self, args, *, data=None, cleanup=False):
+            if args[0]=='create':remember_container(args[1:])
             # Mirror the preserved runtime budgets/environment; only add evidence.
             remaining = 10 if cleanup else min(15, self.deadline-time.monotonic())
             if remaining <= 0: raise TimeoutError('Whole-operation deadline reached')
-            if not args or args[0] not in ('create', 'start', 'inspect', 'logs', 'rm', 'ps'):
+            if not args or args[0] not in ('create', 'start', 'inspect', 'logs', 'rm', 'ps','volume'):
                 raise ValueError('Unexpected diagnostic Docker operation')
             record = {'command': [sanitize(str(x), 256) for x in ['docker', *args]], 'cleanup': cleanup}
             with tempfile.TemporaryFile() as errors:
@@ -226,19 +311,26 @@ def reaper(image):
     from deployment.c3c.reaper import reap
     from deployment.c3c.supervisor import LABEL
     nonce = uuid.uuid4().hex; name = 'c3c-'+nonce+'-worker'
+    created=False
     try:
         command(['docker', 'run', '-d', '--name', name, '--label', LABEL+'='+nonce,
                  '--label', 'seo.c3c.managed=true', '--label', 'seo.c3c.expires='+str(int(time.time())-1),
                  '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges=true',
                  '--memory', '32m', '--memory-swap', '32m', '--pids-limit', '8', '--cpus', '.20',
                  '--user', '10001:10001', image, 'python', '-c', 'import time; time.sleep(60)'])
-        removed = reap()
+        created=True
+        base_runtime=diagnostic_runtime()(60)
+        class ScopedReaper:
+            def call(self,args,**kwargs):
+                if args[0]=='ps':args=[*args,'--filter','label='+LABEL+'='+nonce]
+                return base_runtime.call(args,**kwargs)
+        removed = reap(runtime=ScopedReaper())
         assert nonce in removed
         assert not command(['docker', 'ps', '-aq', '--filter', 'label='+LABEL+'='+nonce], capture=True).strip()
         return {'expired_owned_container_removed': True, 'zero_owned_survivors': True,
                 'scope': 'real external reaper invocation; supervisor crash and active cancellation remain separate'}
     finally:
-        subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=15)
+        if created or nonce in OWNED_NONCES:subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=15)
 
 
 def regression(work):
@@ -317,9 +409,14 @@ def browser_options(image,nonce):
 def native_browser(image):
     from deployment.c3c.supervisor import image_id
     image_id(image);nonce=uuid.uuid4().hex;name='c3c-'+nonce+'-worker'
+    host_policy=sandbox_attachment.readonly_preflight()
+    worker_args=sandbox_attachment.attach_worker(browser_options(image,nonce),host_policy)
+    created=False
     try:
-        command(['docker',*browser_options(image,nonce)],timeout=15)
+        command(['docker',*worker_args],timeout=15)
+        created=True
         details=json.loads(command(['docker','inspect',name],capture=True))[0]
+        print('C3C_POLICY_ATTACHMENT '+json.dumps(sandbox_attachment.verify_container(details,host_policy)),flush=True)
         host=details['HostConfig']
         print('NATIVE_BROWSER_CONTAINER '+sanitize(json.dumps(dict(
             user=details['Config']['User'],apparmor_profile=details.get('AppArmorProfile'),
@@ -330,6 +427,7 @@ def native_browser(image):
         with tempfile.TemporaryFile() as log:
             timed_out=False;result=None
             try:
+                sandbox_attachment.require_ready(host_policy)
                 result=subprocess.run(['docker','start','--attach',name],stdout=log,stderr=subprocess.STDOUT,timeout=40)
             except subprocess.TimeoutExpired:
                 timed_out=True
@@ -344,10 +442,25 @@ def native_browser(image):
                     engine_error=state.get('Error'),
                     note='Container exit is distinct from Chromium exit reported by Playwright'))),flush=True)
             assert not timed_out and len(raw)<=32768 and result.returncode==0,'Native browser probe did not pass'
-        return {'status':'PASS','scope':'Pinned non-root sandbox and synthetic original secure_context; real broker/mTLS acceptance remains separate'}
+            gates=browser_evidence(raw)
+        return {'status':'PASS','gates':gates,'scope':'Pinned non-root sandbox and synthetic original secure_context; separate denial-only broker IPC gate; broker-backed network rendering/mTLS NOT VERIFIED'}
     finally:
-        command(['docker','rm','--force',name],timeout=15)
+        if created or nonce in OWNED_NONCES:command(['docker','rm','--force',name],timeout=15)
         assert not command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+
+
+def browser_evidence(raw):
+    records=[];namespaces=[]
+    for line in raw.decode('utf-8',errors='replace').splitlines():
+        if line.startswith('C3C_BROWSER_DIAGNOSTIC '):records.append(json.loads(line.split(' ',1)[1]))
+        if line.startswith('C3C_NAMESPACE_DIAGNOSTIC '):namespaces.append(json.loads(line.split(' ',1)[1]))
+    expected=['setns_invalid_fd','mount_null_target','outer_chroot','unshare_zero','unshare_mount_namespace','user_namespace_chain','full_namespace_chain']
+    assert len(namespaces)==1 and namespaces[0]['status']=='PASS'
+    rows=namespaces[0]['checks']
+    assert [r['stage'] for r in rows]==expected and all(r['status']=='PASS' for r in rows)
+    for kind,status in [('launch','STARTED'),('sandbox_page','PASS'),('synthetic_dom','PASS')]:
+        assert any(r.get('kind')==kind and r.get('status')==status for r in records),'Missing positive '+kind+' evidence'
+    return {name:'PASS' for name in ('negative_security_controls','namespace_prerequisites','chromium_secure_startup','chromium_sandbox_page','synthetic_dom_rendering')}
 
 
 IPC_PROBE = '''import json,socket,os
@@ -426,15 +539,24 @@ def native_broker_ipc(ids):
 
 
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument('--safety', action='store_true'); parser.add_argument('--execute', action='store_true')
-    args = parser.parse_args(); safety()
+    parser = argparse.ArgumentParser(); parser.add_argument('--safety', action='store_true'); parser.add_argument('--execute', action='store_true');parser.add_argument('--cleanup',action='store_true')
+    args = parser.parse_args()
+    if args.cleanup:
+        # Cleanup cannot depend on remote main remaining unchanged mid-job.
+        assert os.environ.get('GITHUB_ACTIONS')=='true'
+        assert os.environ.get('GITHUB_REPOSITORY')=='SEOAuditSuite/SEO-Audit-Suite'
+        assert os.environ.get('GITHUB_REF')=='refs/heads/'+BRANCH and os.environ.get('GITHUB_RUN_ATTEMPT')=='1'
+        assert os.environ.get('C3C_POLICY_JOB')==os.environ['GITHUB_RUN_ID']+'-1'
+        print('C3C_JOB_CLEANUP '+json.dumps(final_cleanup()),flush=True);return 0
+    safety()
     if not args.execute: return 0
     assert os.environ.get('GITHUB_ACTIONS') == 'true', 'Native execution is restricted to the approved disposable runner'
     sys.path.insert(0, str(ROOT))
     with tempfile.TemporaryDirectory(prefix='c3c-validation-') as temporary:
         work = Path(temporary)
         docker = stage('docker_cgroup_v2_preflight', docker_preflight)
-        preflight = stage('candidate_image_preflight',image_preflight) if docker['status']=='PASS' else None
+        host_policy=stage('sandbox_policy_host_preflight',sandbox_attachment.require_host_preflight)
+        preflight = stage('candidate_image_preflight',image_preflight) if docker['status']=='PASS' and host_policy['status']=='PASS' else None
         if preflight and preflight['status']=='PASS':
             built = stage('isolated_resource_fixture_image', lambda: resource_image(work))
             if built['status'] == 'PASS':
@@ -446,12 +568,13 @@ def main():
             if reg['status']=='PASS':
                 integrated=stage('candidate_integrated_image_builds',lambda:integrated_build(work,preflight['evidence']['digest_reference']))
                 if integrated['status']=='PASS':
-                    stage('native_candidate_browser_sandbox',lambda:native_browser(integrated['evidence']['immutable_image_ids']['worker']))
-                    stage('native_container_broker_ipc',lambda:native_broker_ipc(integrated['evidence']['immutable_image_ids']))
+                    browser=stage('native_candidate_browser_sandbox',lambda:native_browser(integrated['evidence']['immutable_image_ids']['worker']))
+                    if browser['status']=='PASS':stage('native_container_broker_ipc',lambda:native_broker_ipc(integrated['evidence']['immutable_image_ids']))
         stage('real_signed_unix_api',unix_api)
         if not preflight or preflight['status']!='PASS':
             print('STOP: Required image preflight not passed. No integrated pull/build, dependency change or incompatible substitution.', flush=True)
         survivors = stage('final_zero_managed_survivors', lambda: final_cleanup())
+        if host_policy['status']=='PASS':stage('global_docker_policy_preserved',lambda:sandbox_attachment.verify_defaults(host_policy['evidence']))
     remaining = ['real non-root Chromium sandbox through broker', 'mTLS gateway',
                  'reachable IPv4/IPv6/metadata canaries and packet/firewall evidence',
                  'active native cancellation and supervisor-crash cleanup',
@@ -464,14 +587,33 @@ def main():
 
 
 def final_cleanup():
-    ids = command(['docker', 'ps', '-aq', '--filter', 'label=seo.c3c.managed=true'], capture=True).split()
-    if ids: command(['docker', 'rm', '-f', *ids], timeout=30)
-    remaining = command(['docker', 'ps', '-aq', '--filter', 'label=seo.c3c.managed=true'], capture=True).strip()
-    assert not remaining
-    volumes=command(['docker','volume','ls','-q','--filter','label=seo.c3c.managed=true'],capture=True).split()
-    if volumes:command(['docker','volume','rm',*volumes],timeout=30)
-    assert not command(['docker','volume','ls','-q','--filter','label=seo.c3c.managed=true'],capture=True).strip()
-    return {'zero_managed_containers': True,'zero_managed_volumes':True,'forced_cleanup_was_needed':bool(ids or volumes)}
+    path=ownership_path()
+    if path and path.exists():
+        if path.is_symlink():raise RuntimeError('Unsafe ownership receipt')
+        saved=json.loads(path.read_text())
+        for nonce in saved['nonces']:
+            if not re.fullmatch('[a-f0-9]{32}',nonce):raise RuntimeError('Invalid cleanup nonce')
+            OWNED_NONCES.add(nonce)
+        for reference in saved['images']:remember_image(reference)
+    removed=0
+    for nonce in sorted(OWNED_NONCES):
+        filters=['--filter','label=seo.c3c.managed=true','--filter','label=seo.c3c.job='+nonce]
+        ids=command(['docker','ps','-aq',*filters],capture=True).split()
+        if ids:
+            rows=json.loads(command(['docker','inspect',*ids],capture=True))
+            for row in rows:
+                labels=row['Config'].get('Labels',{})
+                if row['Name'] not in ('/c3c-'+nonce+'-worker','/c3c-'+nonce+'-broker') or labels.get('seo.c3c.job')!=nonce or labels.get('seo.c3c.managed')!='true':raise RuntimeError('Container cleanup ownership conflict')
+            command(['docker','rm','-f',*ids],timeout=30);removed+=len(ids)
+        volumes=command(['docker','volume','ls','-q',*filters],capture=True).split()
+        if any(name!='c3c-'+nonce+'-ipc' for name in volumes):raise RuntimeError('Volume cleanup ownership conflict')
+        if volumes:command(['docker','volume','rm',*volumes],timeout=30);removed+=len(volumes)
+        assert not command(['docker','ps','-aq',*filters],capture=True).strip()
+        assert not command(['docker','volume','ls','-q',*filters],capture=True).strip()
+    for reference in sorted(OWNED_IMAGES):
+        if image_exists(reference):command(['docker','image','rm',reference],timeout=30)
+    if path:path.unlink(missing_ok=True)
+    return dict(zero_job_owned_containers=True,zero_job_owned_volumes=True,job_owned_image_references_removed=True,forced_cleanup_was_needed=bool(removed),scope='Only recorded job nonces and previously absent image references; no global prune')
 
 
 if __name__ == '__main__':

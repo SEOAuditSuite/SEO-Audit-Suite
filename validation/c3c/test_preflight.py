@@ -130,6 +130,7 @@ class ImageTests(unittest.TestCase):
             output=Path(tmp)/'output'
             self.assertEqual((output/'Dockerfile.candidate').read_text(),image.dockerfile((ROOT/'deployment/c3c/Dockerfile.integrated').read_text()))
             self.assertTrue((output/'validation/c3c/sandbox_probe.py').is_file())
+            self.assertEqual((output/'validation/c3c/namespace_diagnostics.py').read_bytes(),(ROOT/'validation/c3c/namespace_diagnostics.py').read_bytes())
     def test_native_probe_keeps_security_controls(self):
         args=run.browser_options('sha256:'+'a'*64,'b'*32)
         for flag in ('--read-only','--cap-drop','--security-opt'):self.assertIn(flag,args)
@@ -225,11 +226,13 @@ class StartupDiagnosticsTests(unittest.TestCase):
         original=run.command
         def git(args,**kwargs):
             if args[:2]==['git','rev-parse']:return candidate['parent']+'\n'
+            if args[:2]==['git','merge-base']:return ''
+            if args[:2]==['git','ls-remote']:return run.BASE+'\trefs/heads/main\n'
             if args[:3]==['git','diff','--name-only']:
                 return '\n'.join(candidate['changed_paths'] if args[3]=='HEAD^' else sorted(cumulative))
             return original(args,**kwargs)
         with tempfile.TemporaryDirectory() as directory:
-            event=Path(directory)/'event.json';event.write_text(json.dumps(dict(repository=dict(private=False,full_name='SEOAuditSuite/SEO-Audit-Suite'))))
+            event=Path(directory)/'event.json';event.write_text(json.dumps(dict(before=candidate['parent'],repository=dict(private=False,full_name='SEOAuditSuite/SEO-Audit-Suite'))))
             env=dict(GITHUB_ACTIONS='true',GITHUB_REF='refs/heads/'+run.BRANCH,GITHUB_RUN_ATTEMPT='1',GITHUB_EVENT_PATH=str(event))
             with patch.dict(os.environ,env),patch.object(run,'command',side_effect=git),contextlib.redirect_stdout(io.StringIO()):run.safety()
     def test_strips_terminal_controls_and_bounds_message(self):
@@ -273,22 +276,22 @@ class StartupDiagnosticsTests(unittest.TestCase):
         state=dict(Running=False,ExitCode=1,OOMKilled=False,Error='')
         outputs=['',json.dumps(details),json.dumps(state),'','']
         out=io.StringIO()
-        with patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs),patch.object(run.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),contextlib.redirect_stdout(out):
+        with patch('validation.c3c.policy_attachment.readonly_preflight',return_value={}),patch('validation.c3c.policy_attachment.attach_worker',side_effect=lambda args,result:args),patch('validation.c3c.policy_attachment.verify_container',return_value={}),patch('validation.c3c.policy_attachment.require_ready'),patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs),patch.object(run.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),contextlib.redirect_stdout(out):
             with self.assertRaises(AssertionError):run.native_browser('sha256:'+'a'*64)
         self.assertIn('"docker_attach_exit": 1',out.getvalue());self.assertIn('"container_exit": 1',out.getvalue())
         self.assertIn('distinct from Chromium exit',out.getvalue())
     def test_native_timeout_still_reports_state_and_cleans(self):
         outputs=['',json.dumps([dict(Config={'User':'10001:10001'},HostConfig={})]),json.dumps(dict(Running=True,ExitCode=0)),'','']
         out=io.StringIO()
-        with patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs) as command,patch.object(run.subprocess,'run',side_effect=subprocess.TimeoutExpired('docker',40)),contextlib.redirect_stdout(out):
+        with patch('validation.c3c.policy_attachment.readonly_preflight',return_value={}),patch('validation.c3c.policy_attachment.attach_worker',side_effect=lambda args,result:args),patch('validation.c3c.policy_attachment.verify_container',return_value={}),patch('validation.c3c.policy_attachment.require_ready'),patch('deployment.c3c.supervisor.image_id'),patch.object(run,'command',side_effect=outputs) as command,patch.object(run.subprocess,'run',side_effect=subprocess.TimeoutExpired('docker',40)),contextlib.redirect_stdout(out):
             with self.assertRaises(AssertionError):run.native_browser('sha256:'+'a'*64)
         self.assertIn('"attach_timeout": true',out.getvalue());self.assertIn('"container_exit": null',out.getvalue())
         self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
     def test_lineage_and_no_upload_workflow_preserved(self):
         manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
-        self.assertEqual(manifest['parent'],'6567331ab940a79982eed5a53d7e460b0fd59919')
+        self.assertEqual(manifest['parent'],'ef0dfc6e6d9a12aca3f8319c2ca2634bbead17b1')
         self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
-        self.assertIn('fetch-depth: 5',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+        self.assertIn('fetch-depth: 8',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
 
 
 if __name__=='__main__':unittest.main()

@@ -166,6 +166,8 @@ def main():
     from playwright.sync_api import sync_playwright
     from browser_isolation import launch_browser,secure_context
     snapshot()
+    from validation.c3c.namespace_diagnostics import run_checks
+    run_checks()
     with driver_diagnostics(), sync_playwright() as playwright:
         playwright=ObservedPlaywright(playwright)
         browser=launch_browser(playwright)
@@ -184,6 +186,7 @@ def main():
                 page=context.new_page();page.set_content('<h1>Fixture</h1><a href="/next">Next</a><script>document.body.dataset.js="yes"</script>')
                 if page.locator('h1').inner_text()!='Fixture' or page.locator('body').get_attribute('data-js')!='yes':
                     raise RuntimeError('Original secure context integration failed')
+                emit('synthetic_dom',status='PASS',scope='Local synthetic JavaScript rendering in original secure context; no external network claim')
             finally: context.close()
             print(json.dumps(dict(status='PASS',uid=os.getuid(),browser_version=browser.version,
                   sandbox='positive chrome://sandbox evidence',synthetic_secure_context=True,

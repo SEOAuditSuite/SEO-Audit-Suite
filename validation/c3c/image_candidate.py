@@ -115,7 +115,7 @@ def prepare(source_context,wheels,output):
     shutil.copytree(source,output)
     if (output/'wheelhouse').exists():shutil.rmtree(output/'wheelhouse')
     shutil.copytree(wheels,output/'wheelhouse')
-    for name in ('sandbox_probe.py','verify_candidate_image.py'):
+    for name in ('sandbox_probe.py','verify_candidate_image.py','namespace_diagnostics.py'):
         target=output/'validation/c3c'/name;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(Path(__file__).with_name(name),target)
     (output/'Dockerfile.candidate').write_text(recipe)

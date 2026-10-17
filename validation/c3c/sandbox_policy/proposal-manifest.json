@@ -1,0 +1,50 @@
+{
+  "parent": "0df69f4b193ada03d655b9e0fc6129e605c918e9",
+  "required_main": "36c98ecd4537cc421e0ffe08321f62a10b0bed36",
+  "readiness": "BLOCKED_NATIVE_POLICY_NOT_ATTACHED_OR_ENFORCEMENT_VERIFIED",
+  "changed_paths": [
+    "validation/c3c/sandbox_policy/README.md",
+    "validation/c3c/sandbox_policy/UPSTREAM-LICENSE",
+    "validation/c3c/sandbox_policy/chromium-amd64.seccomp.json",
+    "validation/c3c/sandbox_policy/chromium.apparmor",
+    "validation/c3c/sandbox_policy/docker-28.0.4-apparmor-template.go",
+    "validation/c3c/sandbox_policy/docker-28.0.4-default.json",
+    "validation/c3c/sandbox_policy/offline_filter.py",
+    "validation/c3c/sandbox_policy/policy.py",
+    "validation/c3c/sandbox_policy/proposal-manifest.json",
+    "validation/c3c/sandbox_policy/test_policy.py"
+  ],
+  "sha256": {
+    "validation/c3c/sandbox_policy/README.md": "d3b1b375f30b66c522e4b9bf82d0b1e884cc2370055c5109f339c1299e5538a8",
+    "validation/c3c/sandbox_policy/UPSTREAM-LICENSE": "7c87873291f289713ac5df48b1f2010eb6963752bbd6b530416ab99fc37914a8",
+    "validation/c3c/sandbox_policy/chromium-amd64.seccomp.json": "b4d406562df48098a2bd0342eb7ec0ab16f0ead4deeb621243ea9839018dd137",
+    "validation/c3c/sandbox_policy/chromium.apparmor": "d0f68ac2ab130b39520e9ac71022196a9d21805319765fc85cbd3b5163b48241",
+    "validation/c3c/sandbox_policy/docker-28.0.4-apparmor-template.go": "42130ca5908f45263facef820961d9e1a988e82f8a2937f4658e7bcccc96cc07",
+    "validation/c3c/sandbox_policy/docker-28.0.4-default.json": "9c1025c88ccaa517b648da571961838744ea2137f176bfe6a48b21294cae9c76",
+    "validation/c3c/sandbox_policy/offline_filter.py": "acb6af17448bdb2cde76bf749550716f204798bc0dd52c04d1857b3ac0d60d0b",
+    "validation/c3c/sandbox_policy/policy.py": "18bd3147cc8483250c149fa3e687b1ef32ca7ac469f178fff9af4ab66795fd1c",
+    "validation/c3c/sandbox_policy/test_policy.py": "c66ccd3db55a2be258c5b2e31a9a2495428dba415fb65701bb5ecd6f3183a048"
+  },
+  "engineering_files_modified": 0,
+  "existing_tracked_files_modified": 0,
+  "policy_tests_passed": 19,
+  "existing_focused_tests_passed": 45,
+  "workflow_safety_checks_passed": 11,
+  "source_review_sha256": {
+    "credentials.cc": "43e3968be3683c5c81b3992c97e113668d5bc83e06e0f0e3ca9236f4dedce372",
+    "namespace.cc": "ae3ecf1e474c970cfbe5413b1ec3aa99895f3dcced7c1ae774955c307218cd8c",
+    "namespace_utils.cc": "ccc94e6dc8ec2d7f0eeb1e37362dbbd343ef23da952ecabe801f491d69cff1c0",
+    "sandbox_linux.cc": "35c62d065e2f2f8eab5cfe9d75c83c6285581ffac9d3f23be710652eb7736567",
+    "zygote.cc": "f1b0262301b71a274e3e0253888d233c7c2cb016485899fc16b0e8bcfe4cd36d",
+    "default_linux.go": "4529ff8a038f4365ba865d30be2468f6c64b80c832567d978e91906999cc632b",
+    "apparmor_loader.go": "8318df09d9d783ddd7caf27d1725f500f7028e65bd7bec87c8a27940c715edc5"
+  },
+  "apparmor_parser": {
+    "version": "4.0.0-beta3-0ubuntu3",
+    "package_sha256": "d783c4183840745b931b72a9df8c15d341f640efa6f3069e5935c1b6542ff840",
+    "authentication": "Ubuntu InRelease signature checked with Ubuntu archive keyring; Packages.xz and package SHA256 checked",
+    "kernel_load": false,
+    "host_install": false
+  },
+  "scope": "Offline exact-delta proposal and compiler-output tests only. Existing candidate manifest and workflow remain unchanged. No commit/push/native run."
+}
