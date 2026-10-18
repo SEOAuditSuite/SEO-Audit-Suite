@@ -165,7 +165,7 @@ def attach_worker(args,result):
     if len(names)!=1 or not re.fullmatch(r'c3c-[a-f0-9]{32}-worker',names[0]):raise Blocked('Only a synthetic browser worker may receive policies')
     nonce=names[0][4:-7]
     expected={'--name':names,'--user':['10001:10001'],'--network':['none'],'--ipc':['private'],
-        '--memory':['1536m'],'--memory-swap':['1536m'],'--cpus':['1.0'],'--pids-limit':['64'],'--cap-drop':['ALL'],
+        '--memory':['1536m'],'--memory-swap':['1536m'],'--cpus':['1.0'],'--pids-limit':['128'],'--cap-drop':['ALL'],
         '--security-opt':['no-new-privileges=true'],'--ulimit':['nofile=256:256','core=0:0'],
         '--tmpfs':['/tmp:rw,nosuid,nodev,size=256m,mode=1777'],'--log-driver':['local'],
         '--log-opt':['max-size=10m','max-file=1','compress=false'],
@@ -183,7 +183,7 @@ def verify_container(details,result):
     require_ready(result)
     h=details['HostConfig'];config=details['Config']
     if config.get('Entrypoint')!=['python'] or config.get('Cmd')!=['/app/validation/c3c/sandbox_probe.py'] or config.get('Image')!=details.get('Image') or not re.fullmatch('sha256:[a-f0-9]{64}',str(details.get('Image'))):raise Blocked('Worker image/entrypoint identity differs')
-    expected={'Memory':1536*1024*1024,'MemorySwap':1536*1024*1024,'NanoCpus':1000000000,'PidsLimit':64,
+    expected={'Memory':1536*1024*1024,'MemorySwap':1536*1024*1024,'NanoCpus':1000000000,'PidsLimit':128,
               'NetworkMode':'none','IpcMode':'private','CgroupnsMode':'private','UsernsMode':'','ReadonlyRootfs':True,'Privileged':False,'PidMode':''}
     if any(h.get(k)!=v for k,v in expected.items()) or config.get('User')!='10001:10001':raise Blocked('Effective worker configuration differs')
     if h.get('CapAdd') or h.get('CapDrop')!=['ALL'] or h.get('Binds') or h.get('Devices') or h.get('VolumesFrom'):raise Blocked('Unexpected privilege/device/mount attachment')

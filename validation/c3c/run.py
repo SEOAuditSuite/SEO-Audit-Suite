@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = 'ec91c6af312f910050f236907a8c2632ddc47079'
+DIAGNOSTIC_PARENT = 'a1a73548532b1aa8b001123dee0b0850c880700d'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -76,7 +76,7 @@ def safety():
             assert hashlib.sha256(data).hexdigest() == digest, name
     workflow = (ROOT/'.github/workflows/c3c-security-validation.yml').read_text()
     generic = (ROOT/'.github/workflows/python-check.yml').read_text()
-    assert 'fetch-depth: 9' in workflow
+    assert 'fetch-depth: 10' in workflow
     assert workflow.index('--prepare-job') < workflow.index('780s python -u validation/c3c/run.py --execute') < workflow.index('--cleanup-job')
     assert "if: always()" in workflow and '--cleanup' in workflow
     assert '--replace' not in workflow and 'sudo -n -- /usr/bin/python3 -I' in workflow
@@ -307,6 +307,68 @@ def resources(image, work):
     return {'fixtures': [{k: r[k] for k in ('mode', 'status', 'cleanup_confirmed')} for r in rows], 'image': image}
 
 
+# Validation-only ceiling. Production Limits().pids remains 64 and is not accepted.
+VALIDATION_BROWSER_TASKS = 128
+PID_BUDGET_PROBE = r'''import errno,json,os,signal
+from pathlib import Path
+root=Path('/sys/fs/cgroup')
+def event():return int(dict(line.split() for line in (root/'pids.events').read_text().splitlines())['max'])
+assert os.getuid()==10001 and os.getgid()==10001
+assert (root/'pids.max').read_text().strip()=='128'
+before=event();children=[];denial=None;read_fd,write_fd=os.pipe()
+try:
+    for _ in range(128):
+        try:pid=os.fork()
+        except OSError as exc:denial=exc.errno;break
+        if pid==0:
+            try:
+                os.close(write_fd);os.read(read_fd,1)
+            finally:os._exit(0)
+        children.append(pid)
+    current=int((root/'pids.current').read_text());delta=event()-before
+    assert denial==errno.EAGAIN and current==128 and delta>0
+finally:
+    os.close(write_fd);os.close(read_fd)
+    for pid in children:
+        try:os.kill(pid,signal.SIGKILL)
+        except ProcessLookupError:pass
+    for pid in children:os.waitpid(pid,0)
+assert int((root/'pids.current').read_text())==1
+print(json.dumps(dict(status='PASS',pids_max=128,at_denial=current,event_delta=delta,errno=denial,owned_children_reaped=True)))
+'''
+
+
+def native_pid_budget(image):
+    """Separate sequential synthetic container: never consumes the browser budget.
+
+    Default Docker AppArmor/seccomp remain enforced here. Reviewed custom browser
+    policies are attached only by native_browser, whose entrypoint is unchanged.
+    """
+    nonce=uuid.uuid4().hex;name='c3c-'+nonce+'-worker';created=False
+    args=browser_options(image,nonce)
+    args[-1:]=['-c',PID_BUDGET_PROBE]
+    try:
+        command(['docker',*args],timeout=15);created=True
+        info=json.loads(command(['docker','inspect',name],capture=True))[0]
+        from deployment.c3c.supervisor import verify_container
+        from deployment.c3c.policy import Limits
+        verify_container(info,Limits(pids=VALIDATION_BROWSER_TASKS))
+        assert not any(info['HostConfig'].get(key) for key in ('CapAdd','Binds','Devices','VolumesFrom'))
+        assert info.get('AppArmorProfile')=='docker-default'
+        assert info['HostConfig'].get('SecurityOpt')==['no-new-privileges=true']
+        raw=command(['docker','start','--attach',name],capture=True,timeout=15)
+        assert len(raw)<=1024
+        record=json.loads(raw)
+        assert record.get('status')=='PASS' and record.get('pids_max')==VALIDATION_BROWSER_TASKS
+        assert record.get('at_denial')==VALIDATION_BROWSER_TASKS and record.get('errno')==11
+        assert type(record.get('event_delta')) is int and record['event_delta']>0
+        assert record.get('owned_children_reaped') is True
+        return record
+    finally:
+        if created or nonce in OWNED_NONCES:command(['docker','rm','--force',name],timeout=15)
+        assert not command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+
+
 def reaper(image):
     from deployment.c3c.reaper import reap
     from deployment.c3c.supervisor import LABEL
@@ -399,7 +461,7 @@ def browser_options(image,nonce):
             '--label','seo.c3c.job='+nonce,'--label','seo.c3c.expires='+str(int(time.time()+60)),
             '--user','10001:10001','--read-only','--cap-drop','ALL',
             '--security-opt','no-new-privileges=true','--memory','1536m','--memory-swap','1536m',
-            '--cpus','1.0','--pids-limit','64','--ulimit','nofile=256:256','--ulimit','core=0:0',
+            '--cpus','1.0','--pids-limit',str(VALIDATION_BROWSER_TASKS),'--ulimit','nofile=256:256','--ulimit','core=0:0',
             '--ipc','private','--network','none','--tmpfs','/tmp:rw,nosuid,nodev,size=256m,mode=1777',
             '--log-driver','local','--log-opt','max-size=10m','--log-opt','max-file=1','--log-opt','compress=false',
             '--env','HOME=/tmp','--env','PYTHONDONTWRITEBYTECODE=1',
@@ -460,7 +522,15 @@ def browser_evidence(raw):
     assert [r['stage'] for r in rows]==expected and all(r['status']=='PASS' for r in rows)
     for kind,status in [('launch','STARTED'),('sandbox_page','PASS'),('synthetic_dom','PASS')]:
         assert any(r.get('kind')==kind and r.get('status')==status for r in records),'Missing positive '+kind+' evidence'
-    return {name:'PASS' for name in ('negative_security_controls','namespace_prerequisites','chromium_secure_startup','chromium_sandbox_page','synthetic_dom_rendering')}
+    final=[r for r in records if r.get('kind')=='task_resources' and r.get('phase')=='acceptance_complete' and r.get('status')=='PASS']
+    assert len(final)==1,'Missing final task-budget acceptance evidence'
+    counters=final[0]['evidence']['cgroup']
+    assert counters.get('pids.max')==str(VALIDATION_BROWSER_TASKS)
+    assert counters.get('pids.events')=={'max':'0'},'Positive browser workload hit the PID controller'
+    peak=counters.get('pids.peak','')
+    assert isinstance(peak,str) and peak.isdigit() and 0<int(peak)<=VALIDATION_BROWSER_TASKS,'Missing/invalid task peak'
+    print('C3C_BROWSER_TASK_HEADROOM '+json.dumps(dict(ceiling=VALIDATION_BROWSER_TASKS,observed_peak=int(peak),unused_tasks=VALIDATION_BROWSER_TASKS-int(peak),scope='One synthetic run, not production calibration')),flush=True)
+    return {name:'PASS' for name in ('negative_security_controls','namespace_prerequisites','chromium_secure_startup','chromium_sandbox_page','synthetic_dom_rendering','bounded_task_budget')}
 
 
 IPC_PROBE = '''import json,socket,os
@@ -557,13 +627,15 @@ def main():
         docker = stage('docker_cgroup_v2_preflight', docker_preflight)
         host_policy=stage('sandbox_policy_host_preflight',sandbox_attachment.require_host_preflight)
         preflight = stage('candidate_image_preflight',image_preflight) if docker['status']=='PASS' and host_policy['status']=='PASS' else None
+        budget_check=None
         if preflight and preflight['status']=='PASS':
             built = stage('isolated_resource_fixture_image', lambda: resource_image(work))
             if built['status'] == 'PASS':
                 image = built['evidence'][0]
-                stage('native_cgroup_memory_pid_cpu_storage', lambda: resources(image, work))
+                resource_check=stage('native_cgroup_memory_pid_cpu_storage', lambda: resources(image, work))
+                if resource_check['status']=='PASS':budget_check=stage('native_validation_128_task_enforcement',lambda:native_pid_budget(image))
                 stage('native_expiry_reaper', lambda: reaper(image))
-        if preflight and preflight['status']=='PASS':
+        if preflight and preflight['status']=='PASS' and budget_check and budget_check['status']=='PASS':
             reg = stage('locked_full_regression', lambda: regression(work))
             if reg['status']=='PASS':
                 integrated=stage('candidate_integrated_image_builds',lambda:integrated_build(work,preflight['evidence']['digest_reference']))

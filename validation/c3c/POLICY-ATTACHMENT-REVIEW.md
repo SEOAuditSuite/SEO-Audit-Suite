@@ -206,3 +206,133 @@ security acceptance. No commit, push or Actions run is performed in this session
 Decision: READY for one separately authorized diagnostic attempt only. Do not
 change the 64-task cap unless new native counter evidence justifies a reviewed
 compatibility correction. No native execution or publication occurred here.
+
+## Evidence-based PID budget compatibility review — 2026-10-18
+
+This section supersedes earlier unknown attribution and 64-task validation-readiness
+statements. Parent is a1a73548532b1aa8b001123dee0b0850c880700d; required main remains
+36c98ecd4537cc421e0ffe08321f62a10b0bed36. No publication or native run is authorized here.
+
+### Evidence and scope
+
+Native run https://github.com/SEOAuditSuite/SEO-Audit-Suite/actions/runs/39110654959
+confirmed 64/64 current and peak tasks, pids.events and pids.events.local max 0 -> 7,
+thread-creation EAGAIN and renderer fork failure. Before page creation, the worker
+had 57 tasks. A censored peak of 64 is a lower bound on demand, not a successful
+working-set measurement. Seven denied attempts are not seven unique missing tasks:
+retries and utility-service restarts prevent that inference. No upstream source
+establishes a universal task count for Chromium 156.0.8078.4 in this workload.
+
+| Boundary | Existing | Proposed in this candidate |
+|---|---:|---:|
+| Production Limits().pids default | 64 | 64, unchanged and browser compatibility BLOCKED |
+| Production accepted configuration range | 16..128 | 16..128, unchanged |
+| Synthetic browser worker | 64 | 128, provisional native compatibility ceiling |
+| Exact worker attachment/readback requirement | 64 | 128 for synthetic browser only |
+| Separate broker/worker denial-only IPC fixture | 16 / 64 | 16 / 64, unchanged |
+| Existing PID/memory/CPU/storage resource fixtures | 8 tasks | 8 tasks, unchanged |
+| New isolated PID-budget enforcement fixture | none | 128 tasks; sequential, <=15 seconds attached |
+| Production admission/supervisor | one operation per shared private state | unchanged |
+
+### Recommended budget and uncertainty
+
+Recommend 128 tasks ONLY for the next synthetic native compatibility experiment.
+This is the existing reviewed production policy's maximum configurable value,
+not an expansion beyond its accepted range or a new production default. It gives
+64 additional slots over the failed ceiling and 71 slots above observed pre-page
+usage (57). These are allocated slots, NOT measured spare headroom. Selecting the
+already bounded upper end avoids guessing 72/80/96 from retried denials and avoids
+expanding the existing security range to 256/512. It does not prove that 128 is
+sufficient, minimal, or safe for representative ten-page audits. This provisional
+choice remains an engineering assumption until the mandatory native gates pass.
+
+A fresh browser-only container must report the lifetime peak and unused slots,
+with pids.max exactly 128 and pids.events max still zero after DOM extraction and
+browser/driver close. Missing counters, PID denial or missing sandbox/DOM evidence
+fail closed. No automatic increase, retry or fallback budget exists. A successful
+single synthetic page establishes only that run's compatibility. Production
+calibration requires representative repeated workloads, page-count variation,
+measured peak variation, explicit reserve and aggregate host capacity review.
+
+### Independent negative proof
+
+Before image integration/browser launch, run the original four resource fixtures
+and a separate 128-task negative fixture. The latter uses the immutable resource
+fixture image, UID/GID 10001, no network, private IPC, read-only root, all caps
+removed, NoNewPrivs, unchanged memory/CPU/tmpfs/nofile/core/logging bounds and
+Docker's enforced defaults. It neither receives the custom browser profile nor
+changes host policy. Read back the exact bounded Docker controls before start.
+
+The payload forks at most 128 times and retains only its own child PIDs. PASS
+requires EAGAIN, pids.current=128, pids.max=128, positive pids.events.max delta,
+all owned children reaped, and current returning to one task. A generic Python,
+permission or memory error cannot count as PID enforcement. Parent-side attach
+has a 15-second timeout and finally removes only its nonce-labelled container,
+then checks no owned survivor. Existing final cleanup remains the backstop.
+This stress fixture never runs concurrently with Chromium; its pids.peak and
+expected denial events cannot contaminate the fresh browser container's counters.
+Actual 128-task kernel enforcement is NOT VERIFIED until native execution.
+
+### Denial-of-service trade-offs and independent limits
+
+The browser ceiling doubles the possible simultaneous kernel task objects from
+64 to 128 for this one synthetic worker. CPU throttling does not itself bound
+kernel-task memory or churn, and a PID cap does not bound task-creation rate.
+Keep 1536 MiB RAM/no extra swap, 1 CPU, 256 MiB /tmp, 64 MiB private /dev/shm,
+nofile=256, core=0, network none and the 34-second probe / 40-second Docker
+budgets. The negative fixture is sequential and independently timed; the workflow
+retains its 20-minute job bound and no upload/cache steps. Runtime, supervisor and
+controller remain outside these cgroups; aggregate host budgets are NOT VERIFIED.
+
+Existing supervisor active.lock applies only to callers sharing the same state
+directory, not independently configured services across a host. Workflow
+concurrency serializes this repository's validation group, not unrelated jobs.
+Current production worker+broker ceilings remain 64+16=80. If a later reviewed
+production configuration selected 128, that sibling sum would be 144; this
+candidate neither selects that production configuration nor certifies capacity.
+A single 128-task test is not authorization for more concurrent workers or a
+multi-tenant deployment. Security policies, pins, sandbox and cleanup are unchanged.
+
+### Exact scope and acceptance
+
+Eight changed paths: the workflow, run.py, policy_attachment.py, sandbox_probe.py,
+test_preflight.py, test_policy_attachment.py, this review, candidate-manifest.json.
+All 48 engineering files and ten policy-proposal files remain byte-identical to
+parent, including production defaults, dependency locks and source/proposal hashes.
+Only the synthetic worker budget and its exact attachment/readback checks change.
+The final browser snapshot and separate negative gate add acceptance evidence.
+Checkout depth 10 retains main for the proposed child nine edges above baseline;
+remote-main, exact-parent, single-attempt and push-only checks remain mandatory.
+
+References: https://docs.kernel.org/admin-guide/cgroup-v2.html#pid and
+https://playwright.dev/python/docs/docker. These document task accounting and
+non-root sandbox requirements, not a guaranteed 128-task Chromium budget.
+
+Broker-backed rendering, mTLS, network containment, active crash/cancellation,
+production calibration and native 128-task compatibility remain NOT VERIFIED.
+Decision is READY only for a separately authorized bounded native experiment,
+conditional on all offline checks below passing; production release remains BLOCKED.
+
+### Offline results and decision
+
+- Linux/Python 3.12.14 focused: 162/162 PASS (68 preflight/diagnostics +
+  19 seccomp + 75 attachment/cleanup/budget tests).
+- Hosted-variable simulation (C3C_POLICY_JOB and RUNNER_TEMP): 162/162 PASS.
+- Hosted-variable plus mocked effective UID 1001 branch simulation: 162/162 PASS.
+  This is explicitly NOT actual UID switching or native kernel enforcement.
+- New budget regressions: 16/16 PASS, including missing final evidence,
+  missing sandbox/DOM, wrong/unlimited readback, false denial attribution,
+  privilege/profile mutation and uncertain child cleanup rejection.
+- Workflow safety: 11/11 PASS; 128 source checksums verified. No paid runner,
+  artifacts, cache/image upload, retry or secondary workflow is introduced.
+- 48/48 engineering and 10/10 proposal files byte-identical to parent;
+  exact eight-path scope, proposal identity and whitespace checks PASS.
+- Full application regression not repeated: no application/audit/export logic
+  changes. Prior run's 425/425 PASS is historical, not this candidate's result.
+- Native 128-task enforcement, browser compatibility, measured peak/headroom,
+  sandbox-page and DOM acceptance, broker/network/mTLS, crash/cancellation and
+  cleanup of this new fixture: NOT VERIFIED; none executed in this session.
+
+READY for ONE separately authorized standard free-runner experiment with the
+mandatory negative gate and unchanged acceptance gates. BLOCKED for production
+budget/default changes or release. This candidate is uncommitted and unpublished.

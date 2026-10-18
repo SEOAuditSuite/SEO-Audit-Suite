@@ -134,7 +134,7 @@ class ImageTests(unittest.TestCase):
     def test_native_probe_keeps_security_controls(self):
         args=run.browser_options('sha256:'+'a'*64,'b'*32)
         for flag in ('--read-only','--cap-drop','--security-opt'):self.assertIn(flag,args)
-        for value in ('no-new-privileges=true','1536m','64','256m','none','10001:10001','compress=false'):self.assertIn(value,' '.join(args))
+        for value in ('no-new-privileges=true','1536m','128','256m','none','10001:10001','compress=false'):self.assertIn(value,' '.join(args))
         self.assertNotIn('--privileged',args);self.assertNotIn('--no-sandbox',args)
     def test_sandbox_probe_never_has_insecure_fallback(self):
         text=(ROOT/'validation/c3c/sandbox_probe.py').read_text()
@@ -289,9 +289,9 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
     def test_lineage_and_no_upload_workflow_preserved(self):
         manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
-        self.assertEqual(manifest['parent'],'ec91c6af312f910050f236907a8c2632ddc47079')
+        self.assertEqual(manifest['parent'],'a1a73548532b1aa8b001123dee0b0850c880700d')
         self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
-        self.assertIn('fetch-depth: 9',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+        self.assertIn('fetch-depth: 10',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
 
 
 class RecoveryDiagnosticsTests(unittest.TestCase):
@@ -445,9 +445,9 @@ class TaskAttributionTests(unittest.TestCase):
                 p=Path(tmp)/str(pid);p.mkdir();(p/'status').write_text('Threads:\t'+str(threads)+'\n');(p/'wchan').write_text('0')
             result=self.probe.process_snapshot(Path(tmp))
         self.assertEqual(result['observed_thread_count'],14);self.assertEqual(result['observed_process_count'],2)
-    def test_policy_and_task_cap_unchanged(self):
+    def test_policy_and_explicit_validation_task_cap(self):
         args=run.browser_options('sha256:test','a'*32)
-        self.assertEqual(args[args.index('--pids-limit')+1],'64')
+        self.assertEqual(args[args.index('--pids-limit')+1],'128')
         self.assertIn('--cap-drop',args);self.assertIn('ALL',args)
 
 

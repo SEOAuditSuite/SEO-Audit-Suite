@@ -344,6 +344,7 @@ def main():
                 finally: progress.call('secure_context_close',context.close,2)
             finally: progress.call('browser_close',browser.close,2)
         finally: progress.call('playwright_close',lambda:manager.__exit__(None,None,None),2)
+        emit('task_resources',phase='acceptance_complete',status='PASS',evidence=task_resources())
         print(json.dumps(dict(status='PASS',uid=os.getuid(),browser_version=version,
                     sandbox='positive chrome://sandbox evidence',synthetic_secure_context=True,
                     scope='No broker/network/mTLS or whole-host containment certification')))

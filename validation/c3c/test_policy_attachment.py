@@ -21,7 +21,7 @@ def ready():
 
 def details():
     return dict(Image=IMAGE,AppArmorProfile=a.policy.PROFILE,Mounts=[],Config=dict(User='10001:10001',Image=IMAGE,Entrypoint=['python'],Cmd=['/app/validation/c3c/sandbox_probe.py']),
-        HostConfig=dict(Memory=1536*1024*1024,MemorySwap=1536*1024*1024,NanoCpus=1000000000,PidsLimit=64,
+        HostConfig=dict(Memory=1536*1024*1024,MemorySwap=1536*1024*1024,NanoCpus=1000000000,PidsLimit=128,
         NetworkMode='none',IpcMode='private',CgroupnsMode='private',UsernsMode='',PidMode='',ReadonlyRootfs=True,Privileged=False,CapAdd=None,CapDrop=['ALL'],
         Tmpfs={'/tmp':'rw,nosuid,nodev,size=256m,mode=1777'},LogConfig={'Type':'local','Config':{'max-size':'10m','max-file':'1','compress':'false'}},
         Ulimits=[dict(Name='nofile',Soft=256,Hard=256),dict(Name='core',Soft=0,Hard=0)],
@@ -52,7 +52,7 @@ class AttachmentTests(unittest.TestCase):
             args=run.browser_options(IMAGE,'a'*32);args[1:1]=extra
             with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.attach_worker(args,ready())
     def test_changed_bounds_and_mutable_image_rejected(self):
-        for flag,value in (('--memory','2g'),('--user','0:0'),('--pids-limit','128'),('--cpus','2.0')):
+        for flag,value in (('--memory','2g'),('--user','0:0'),('--pids-limit','64'),('--cpus','2.0')):
             args=run.browser_options(IMAGE,'a'*32);args[args.index(flag)+1]=value
             with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.attach_worker(args,ready())
         args=run.browser_options('image:latest','a'*32)
@@ -70,7 +70,7 @@ class AttachmentTests(unittest.TestCase):
         d=details();d['AppArmorProfile']='docker-default'
         with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.verify_container(d,ready())
     def test_effective_resource_privilege_network_mutations_rejected(self):
-        for key,value in [('Privileged',True),('CapAdd',['SYS_ADMIN']),('NetworkMode','host'),('Memory',2**31),('ReadonlyRootfs',False),('PidsLimit',128),('IpcMode','host'),('Binds',['/:/host'])]:
+        for key,value in [('Privileged',True),('CapAdd',['SYS_ADMIN']),('NetworkMode','host'),('Memory',2**31),('ReadonlyRootfs',False),('PidsLimit',64),('IpcMode','host'),('Binds',['/:/host'])]:
             d=details();d['HostConfig'][key]=value
             with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.verify_container(d,ready())
     def test_effective_image_seccomp_and_mount_mutations_rejected(self):
@@ -255,7 +255,8 @@ class SameRunnerTests(unittest.TestCase):
         record=dict(status='PASS',checks=[dict(stage=s,status='PASS') for s in stages])
         lines=['C3C_NAMESPACE_DIAGNOSTIC '+json.dumps(record)]
         lines+=['C3C_BROWSER_DIAGNOSTIC '+json.dumps(dict(kind=k,status=v)) for k,v in [('launch','STARTED'),('sandbox_page','PASS'),('synthetic_dom','PASS')]]
-        self.assertEqual(len(run.browser_evidence('\n'.join(lines).encode())),5)
+        lines+=['C3C_BROWSER_DIAGNOSTIC '+json.dumps(dict(kind='task_resources',phase='acceptance_complete',status='PASS',evidence=dict(cgroup={'pids.max':'128','pids.peak':'90','pids.events':{'max':'0'}})))]
+        self.assertEqual(len(run.browser_evidence('\n'.join(lines).encode())),6)
         record['checks'][0]['status']='FAIL';lines[0]='C3C_NAMESPACE_DIAGNOSTIC '+json.dumps(record)
         with self.assertRaises(AssertionError):run.browser_evidence('\n'.join(lines).encode())
     def test_job_cleanup_has_no_global_managed_selector(self):
@@ -414,5 +415,97 @@ class CleanupRecoveryTests(unittest.TestCase):
         self.assertTrue((self.directory/'receipt.json').exists())
         self.assertEqual(a.cleanup_job('123-1')['status'],'PASS');self.assertEqual(len(self.removals()),1)
 
+
+
+class PIDBudgetCompatibilityTests(unittest.TestCase):
+    def test_production_budget_and_upper_bound_unchanged(self):
+        from deployment.c3c.policy import Limits
+        self.assertEqual(Limits().pids,64)
+        self.assertEqual(Limits(pids=128).pids,128)
+        for value in (0,-1,129,True,'max'):
+            with self.assertRaises(ValueError):Limits(pids=value)
+    def test_browser_command_and_readback_agree(self):
+        args=run.browser_options(IMAGE,'a'*32)
+        self.assertEqual(args[args.index('--pids-limit')+1],'128')
+        with patch.object(a,'require_ready'):
+            a.attach_worker(args,ready());a.verify_container(details(),ready())
+    def test_wrong_or_unlimited_worker_budget_rejected(self):
+        for value in ('64','0','-1','129','max'):
+            args=run.browser_options(IMAGE,'a'*32);args[args.index('--pids-limit')+1]=value
+            with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.attach_worker(args,ready())
+        for value in (64,0,-1,129,None):
+            info=details();info['HostConfig']['PidsLimit']=value
+            with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.verify_container(info,ready())
+    def modeled_negative(self,record=None,override=None):
+        info=details();info['AppArmorProfile']='docker-default';info['HostConfig']['SecurityOpt']=['no-new-privileges=true']
+        if override:override(info)
+        record=record or dict(status='PASS',pids_max=128,at_denial=128,event_delta=1,errno=11,owned_children_reaped=True)
+        calls=[]
+        def command(args,**kw):
+            calls.append(args)
+            if args[:2]==['docker','inspect']:return json.dumps([info])
+            if args[:2]==['docker','start']:return json.dumps(record)
+            return ''
+        with patch.object(run,'command',side_effect=command):
+            try:return run.native_pid_budget(IMAGE),None,calls
+            except (AssertionError,RuntimeError) as error:return None,error,calls
+    def test_new_budget_negative_fixture_and_owned_cleanup(self):
+        result,error,calls=self.modeled_negative()
+        self.assertIsNone(error);self.assertEqual(result['at_denial'],128)
+        create=calls[0];self.assertIn(run.PID_BUDGET_PROBE,create)
+        self.assertNotIn('--privileged',create)
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_python_failure_without_pid_event_is_not_enforcement(self):
+        record=dict(status='PASS',pids_max=128,at_denial=128,event_delta=0,errno=11,owned_children_reaped=True)
+        _,error,calls=self.modeled_negative(record)
+        self.assertIsNotNone(error);self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_memory_or_permission_failure_never_claims_pid_pass(self):
+        for code in (1,12):
+            record=dict(status='PASS',pids_max=128,at_denial=128,event_delta=1,errno=code,owned_children_reaped=True)
+            self.assertIsNotNone(self.modeled_negative(record)[1])
+    def test_negative_fixture_wrong_readback_blocks_start_and_cleans(self):
+        _,error,calls=self.modeled_negative(override=lambda d:d['HostConfig'].update(PidsLimit=0))
+        self.assertIsNotNone(error);self.assertFalse(any(c[:2]==['docker','start'] for c in calls))
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_unconfined_negative_fixture_is_rejected(self):
+        self.assertIsNotNone(self.modeled_negative(override=lambda d:d.update(AppArmorProfile='unconfined'))[1])
+    def test_child_cleanup_uncertainty_is_not_pass(self):
+        record=dict(status='PASS',pids_max=128,at_denial=128,event_delta=1,errno=11,owned_children_reaped=False)
+        self.assertIsNotNone(self.modeled_negative(record)[1])
+    def test_saturation_code_is_bounded_and_reaps_only_its_children(self):
+        compile(run.PID_BUDGET_PROBE,'PID_BUDGET_PROBE','exec')
+        self.assertIn('range(128)',run.PID_BUDGET_PROBE)
+        self.assertIn('delta>0',run.PID_BUDGET_PROBE)
+        self.assertIn('for pid in children:os.waitpid(pid,0)',run.PID_BUDGET_PROBE)
+        self.assertNotIn('setrlimit',run.PID_BUDGET_PROBE)
+    def browser_records(self,counters=None):
+        stages=['setns_invalid_fd','mount_null_target','outer_chroot','unshare_zero','unshare_mount_namespace','user_namespace_chain','full_namespace_chain']
+        records=['C3C_NAMESPACE_DIAGNOSTIC '+json.dumps(dict(status='PASS',checks=[dict(stage=x,status='PASS') for x in stages]))]
+        records+=['C3C_BROWSER_DIAGNOSTIC '+json.dumps(dict(kind=k,status=v)) for k,v in [('launch','STARTED'),('sandbox_page','PASS'),('synthetic_dom','PASS')]]
+        if counters is not None:records+=['C3C_BROWSER_DIAGNOSTIC '+json.dumps(dict(kind='task_resources',phase='acceptance_complete',status='PASS',evidence=dict(cgroup=counters)))]
+        return records
+    def test_final_budget_evidence_is_mandatory(self):
+        with self.assertRaises(AssertionError):run.browser_evidence('\n'.join(self.browser_records()).encode())
+    def test_positive_browser_pid_denial_or_missing_peak_is_not_pass(self):
+        for counters in ({'pids.max':'128','pids.peak':'128','pids.events':{'max':'1'}},
+                         {'pids.max':'128','pids.events':{'max':'0'}},
+                         {'pids.max':'max','pids.peak':'90','pids.events':{'max':'0'}}):
+            with self.assertRaises(AssertionError):run.browser_evidence('\n'.join(self.browser_records(counters)).encode())
+    def test_positive_budget_does_not_replace_dom_or_sandbox_gates(self):
+        for remove in ('sandbox_page','synthetic_dom'):
+            rows=self.browser_records({'pids.max':'128','pids.peak':'90','pids.events':{'max':'0'}})
+            rows=[x for x in rows if '"kind": "'+remove+'"' not in x]
+            with self.assertRaises(AssertionError):run.browser_evidence('\n'.join(rows).encode())
+    def test_runtime_snapshot_preserves_budget_evidence(self):
+        source=(run.ROOT/'validation/c3c/sandbox_probe.py').read_text()
+        self.assertLess(source.index("progress.phase('dom_extraction')"),source.index("phase='acceptance_complete'"))
+    def test_original_small_resource_fixture_unchanged(self):
+        from deployment.c3c import native_runner
+        self.assertIn("'--pids-limit','8'",Path(native_runner.__file__).read_text())
+    def test_pid_negative_gate_precedes_positive_browser_and_fails_closed(self):
+        source=Path(run.__file__).read_text()
+        body=source[source.index('def main():'):]
+        self.assertLess(body.index("stage('native_validation_128_task_enforcement'"),body.index("stage('native_candidate_browser_sandbox'"))
+        self.assertIn("and budget_check and budget_check['status']=='PASS'",body)
 
 if __name__=='__main__':unittest.main()
