@@ -1,28 +1,24 @@
 {
-  "parent": "a1a73548532b1aa8b001123dee0b0850c880700d",
+  "parent": "8cada86965c400276ceadbd8f9c28e4f5ffcbe93",
   "required_main": "36c98ecd4537cc421e0ffe08321f62a10b0bed36",
-  "readiness": "READY_FOR_SEPARATELY_AUTHORIZED_128_TASK_VALIDATION_ONLY; PRODUCTION_BLOCKED",
+  "readiness": "READY_FOR_SEPARATELY_AUTHORIZED_TARGETED_FIXTURE_NATIVE_ATTEMPT; PRODUCTION_BLOCKED",
   "changed_paths": [
     ".github/workflows/c3c-security-validation.yml",
     "validation/c3c/POLICY-ATTACHMENT-REVIEW.md",
     "validation/c3c/candidate-manifest.json",
-    "validation/c3c/policy_attachment.py",
     "validation/c3c/run.py",
-    "validation/c3c/sandbox_probe.py",
     "validation/c3c/test_policy_attachment.py",
     "validation/c3c/test_preflight.py"
   ],
   "sha256": {
-    ".github/workflows/c3c-security-validation.yml": "af0c942bee00d6e20338661da2835344699b51737419ae7e0d65252fdd5c7a3a",
-    "validation/c3c/POLICY-ATTACHMENT-REVIEW.md": "0921f4c9f910e53e7cce4327ad207a49abccb920ee5b2733701b8ee5856c5901",
-    "validation/c3c/policy_attachment.py": "864877207568d7e3cca76e2a394da5a4bd9cd8bc49f3443c8b1f14d5a8b65831",
-    "validation/c3c/run.py": "3ff7ca70f5674fe8ea9c6e018980ff70b3442c3873d41f5139ba666962f1773f",
-    "validation/c3c/sandbox_probe.py": "ad2fbec4794f5d4354e2d33aa0191a12c092cd92535df0cc4ce6714e8c966d44",
-    "validation/c3c/test_policy_attachment.py": "91229193bab9ad10b2f2dedea8380ceb7c1fcf5aed75be95b40905e5e4a89d4f",
-    "validation/c3c/test_preflight.py": "1362c94f2fde2b846809a8743a3a42d34a3e4634c03d51920b945cd6144a3e22"
+    ".github/workflows/c3c-security-validation.yml": "ca8ea6d25ee87f34f3cb8967f14b0932f7db0b621349b76eb4dd45ac2aeab493",
+    "validation/c3c/POLICY-ATTACHMENT-REVIEW.md": "77c874548793f4e3083b0ed94f9bf027ab20dce092c56f9db4eaf0612f50b28b",
+    "validation/c3c/run.py": "32ae46cc3fcb12cbc69925b9c66acf898287be045b22b9d32652daa8483e6fb6",
+    "validation/c3c/test_policy_attachment.py": "793f33937e94371a7a9645d806fb95cd3d191f739a79dd3914ca590641fed23c",
+    "validation/c3c/test_preflight.py": "78deb04e478a1ea31ec5156cb5da73a013f823b137022dd17bcea5c22b99d07d"
   },
   "recovery_package_sha256": "f754396766233519be6c1778f774e3308eed4d31576e7a9ab75c1114b0ae45a0",
-  "validation_scope_note": "Offline validation-only 128-task candidate; production default64 and security package preserved; no native execution or publication.",
+  "validation_scope_note": "Offline targeted explicit default AppArmor fixture selection, enforcing identity chain and bounded field diagnostics. No publication/native execution.",
   "cumulative_support_paths": [
     ".github/workflows/c3c-security-validation.yml",
     "deployment/c3c/native_runner.py",
@@ -55,18 +51,17 @@
   "recovered_candidate_manifest_sha256": "198772ce66a13d69bf51ef000e1543fab6457b11f3501a7377f081443af20bf1",
   "capability_probe_run": 39039640045,
   "offline_results": {
-    "focused_linux": "162/162 PASS",
-    "hosted_variables": "162/162 PASS",
-    "hosted_nonroot_branch_simulation": "162/162 PASS; mocked effective UID1001, not native execution",
-    "new_budget_regressions": "16/16 PASS",
+    "focused_linux": "178/178 PASS (68 preflight + 19 seccomp + 91 attachment/cleanup/budget)",
+    "hosted_variables": "178/178 PASS",
+    "hosted_nonroot_branch_simulation": "178/178 PASS; mocked effective UID1001, not native enforcement",
+    "new_recovery_regressions": "16/16 PASS",
     "workflow_safety": "11/11 PASS; 128 source hashes verified",
     "engineering_preservation": "48/48 byte-identical to parent",
     "policy_preservation": "10/10 byte-identical to parent",
-    "production_default": "64 unchanged; pinned browser compatibility BLOCKED",
-    "native_128_task_compatibility": "NOT VERIFIED; proposed128 is provisional, not a measured minimum",
-    "native_128_task_enforcement_and_cleanup": "NOT VERIFIED; prepared negative fixture only",
-    "full_regression": "NOT RERUN; no application changes; prior425/425 historical only",
-    "publication": "NONE; no commit/push/Actions run"
+    "historical_failing_assertion": "NOT VERIFIED: native failed inspect field/assertion omitted",
+    "native_corrected_fixture_and_browser": "NOT VERIFIED; no Docker/Actions run",
+    "full_regression": "NOT RERUN; application and exports unchanged",
+    "publication": "NONE; no commit, push, PR, Actions or deployment"
   },
   "supersedes_unpublished_commit": "2856940031d170aff37b4c94adf080349ef2ce83",
   "superseded_candidate_manifest_sha256": "51f6a3f3f41fe46c02a0a677b8336a53ac97a583fdbba2b6fde00621864cc702",
@@ -74,12 +69,10 @@
     ".github/workflows/c3c-security-validation.yml",
     "validation/c3c/POLICY-ATTACHMENT-REVIEW.md",
     "validation/c3c/candidate-manifest.json",
-    "validation/c3c/policy_attachment.py",
     "validation/c3c/run.py",
-    "validation/c3c/sandbox_probe.py",
     "validation/c3c/test_policy_attachment.py",
     "validation/c3c/test_preflight.py"
   ],
-  "previous_candidate_manifest_sha256": "6db33b16681080ed477aaa2c586181a0b7c1895c2263fcd49faf008aec1c0969",
-  "failed_native_run": 39110654959
+  "previous_candidate_manifest_sha256": "11fb2ee0a94afeaae1550850be46a2111e3a7242a7d872b85bf70be45e1df7f9",
+  "failed_native_run": 39112368807
 }

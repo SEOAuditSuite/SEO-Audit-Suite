@@ -436,19 +436,33 @@ class PIDBudgetCompatibilityTests(unittest.TestCase):
         for value in (64,0,-1,129,None):
             info=details();info['HostConfig']['PidsLimit']=value
             with patch.object(a,'require_ready'),self.assertRaises(a.Blocked):a.verify_container(info,ready())
-    def modeled_negative(self,record=None,override=None):
-        info=details();info['AppArmorProfile']='docker-default';info['HostConfig']['SecurityOpt']=['no-new-privileges=true']
+    def modeled_negative(self,record=None,override=None,stderr=b'',exit_code=0,preflight_override=None,timeout=False,identity_failure_at=None):
+        import subprocess
+        info=details();info['AppArmorProfile']='docker-default'
+        info['HostConfig']['SecurityOpt']=['no-new-privileges=true','apparmor=docker-default']
+        info['Config']['Cmd']=['-c',run.PID_BUDGET_PROBE]
         if override:override(info)
         record=record or dict(status='PASS',pids_max=128,at_denial=128,event_delta=1,errno=11,owned_children_reaped=True)
+        preflight=dict(phase='before_saturation',effective_apparmor_label='docker-default (enforce)',uid=10001,pids_max=128)
+        if preflight_override:preflight.update(preflight_override)
         calls=[]
         def command(args,**kw):
             calls.append(args)
             if args[:2]==['docker','inspect']:return json.dumps([info])
-            if args[:2]==['docker','start']:return json.dumps(record)
             return ''
-        with patch.object(run,'command',side_effect=command):
+        def execute(args,**kw):
+            calls.append(args)
+            kw['stdout'].write((json.dumps(preflight)+'\n'+json.dumps(record)+'\n').encode())
+            kw['stderr'].write(stderr)
+            if timeout:raise subprocess.TimeoutExpired(args,15)
+            return subprocess.CompletedProcess(args,exit_code)
+        identities=[]
+        def identity(host):
+            identities.append(host)
+            if len(identities)==identity_failure_at:raise a.Blocked('synthetic profile identity drift')
+        with patch.object(run,'command',side_effect=command),patch.object(run.subprocess,'run',side_effect=execute),patch.object(a,'readonly_preflight',return_value=ready()),patch.object(a,'require_ready',side_effect=identity):
             try:return run.native_pid_budget(IMAGE),None,calls
-            except (AssertionError,RuntimeError) as error:return None,error,calls
+            except (AssertionError,RuntimeError,ValueError) as error:return None,error,calls
     def test_new_budget_negative_fixture_and_owned_cleanup(self):
         result,error,calls=self.modeled_negative()
         self.assertIsNone(error);self.assertEqual(result['at_denial'],128)
@@ -478,6 +492,74 @@ class PIDBudgetCompatibilityTests(unittest.TestCase):
         self.assertIn('delta>0',run.PID_BUDGET_PROBE)
         self.assertIn('for pid in children:os.waitpid(pid,0)',run.PID_BUDGET_PROBE)
         self.assertNotIn('setrlimit',run.PID_BUDGET_PROBE)
+    def test_explicit_default_profile_only_on_negative_fixture(self):
+        args=run.pid_fixture_options(IMAGE,'a'*32)
+        self.assertEqual(args.count('apparmor=docker-default'),1)
+        self.assertNotIn('apparmor=docker-default',run.browser_options(IMAGE,'a'*32))
+        self.assertNotIn('--privileged',args);self.assertNotIn('seccomp=unconfined',args)
+    def test_missing_explicit_selection_blocks_before_start(self):
+        _,error,calls=self.modeled_negative(override=lambda d:d['HostConfig'].update(SecurityOpt=['no-new-privileges=true']))
+        self.assertIn('HostConfig.SecurityOpt',str(error))
+        self.assertFalse(any(c[:2]==['docker','start'] for c in calls))
+    def test_empty_creation_metadata_is_not_accepted_as_default(self):
+        _,error,calls=self.modeled_negative(override=lambda d:d.update(AppArmorProfile=''))
+        self.assertIn("AppArmorProfile expected='docker-default' observed=''",str(error))
+        self.assertFalse(any(c[:2]==['docker','start'] for c in calls))
+    def test_other_profile_identity_blocks_start(self):
+        _,error,calls=self.modeled_negative(override=lambda d:d.update(AppArmorProfile='foreign-profile'))
+        self.assertIn('AppArmorProfile',str(error));self.assertIn('foreign-profile',str(error))
+        self.assertFalse(any(c[:2]==['docker','start'] for c in calls))
+    def test_pid_readback_error_names_field_expected_and_observed(self):
+        _,error,_=self.modeled_negative(override=lambda d:d['HostConfig'].update(PidsLimit=64))
+        self.assertIn('HostConfig.PidsLimit expected=128 observed=64',str(error))
+    def test_preflight_complain_mode_is_rejected(self):
+        self.assertIsNotNone(self.modeled_negative(preflight_override=dict(effective_apparmor_label='docker-default (complain)'))[1])
+    def test_payload_checks_kernel_label_before_fork(self):
+        from unittest.mock import Mock
+        fork=Mock(side_effect=AssertionError('fork must not run'))
+        with patch.object(run.os,'getuid',return_value=10001),patch.object(run.os,'getgid',return_value=10001),patch.object(Path,'open',return_value=io.StringIO('docker-default (complain)')),patch.object(run.os,'fork',fork):
+            with self.assertRaisesRegex(AssertionError,'effective_apparmor_label'):
+                exec(compile(run.PID_BUDGET_PROBE,'pid-fixture','exec'),{})
+        fork.assert_not_called()
+    def test_bad_host_hash_blocks_before_create(self):
+        host=ready();host['evidence']['docker_default_profile_identity']='unknown'
+        with patch.object(a,'readonly_preflight',return_value=host),patch.object(a,'require_ready'),patch.object(run,'command') as command:
+            with self.assertRaisesRegex(AssertionError,'docker_default_profile_identity.sha256'):run.native_pid_budget(IMAGE)
+        command.assert_not_called()
+    def test_host_identity_failure_is_not_bypassed(self):
+        with patch.object(a,'readonly_preflight',return_value=ready()),patch.object(a,'require_ready',side_effect=a.Blocked('synthetic hash mismatch')),patch.object(run,'command') as command:
+            with self.assertRaises(a.Blocked):run.native_pid_budget(IMAGE)
+        command.assert_not_called()
+    def test_identity_drift_before_start_blocks_and_cleans(self):
+        _,error,calls=self.modeled_negative(identity_failure_at=2)
+        self.assertIsNotNone(error);self.assertFalse(any(c[:2]==['docker','start'] for c in calls))
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_identity_drift_after_execution_never_counts_as_pass(self):
+        _,error,calls=self.modeled_negative(identity_failure_at=3)
+        self.assertIsNotNone(error);self.assertTrue(any(c[:2]==['docker','start'] for c in calls))
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_execution_stderr_is_redacted_and_exit_is_reported(self):
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):_,error,calls=self.modeled_negative(stderr=b'token=hidden\nfield mismatch',exit_code=1)
+        self.assertNotIn('hidden',out.getvalue());self.assertIn('field mismatch',out.getvalue())
+        self.assertIn('docker_attach.exit_code expected=0 observed=1',str(error))
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_oversized_stderr_is_flagged_and_rejected(self):
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):_,error,_=self.modeled_negative(stderr=b'x'*3000)
+        self.assertIn('stderr.within_2048_bytes',str(error))
+        self.assertIn('"stderr_truncated": true',out.getvalue())
+    def test_timeout_keeps_diagnostics_and_owned_cleanup(self):
+        out=io.StringIO()
+        with contextlib.redirect_stdout(out):_,error,calls=self.modeled_negative(timeout=True)
+        self.assertIn('docker_attach.timeout',str(error));self.assertIn('"timeout": true',out.getvalue())
+        self.assertTrue(any(c[:3]==['docker','rm','--force'] for c in calls))
+    def test_field_diagnostics_redact_and_bound(self):
+        with self.assertRaises(AssertionError) as caught:run.pid_fixture_equal('profile','docker-default','token=hidden '+('x'*5000))
+        self.assertNotIn('hidden',str(caught.exception));self.assertLess(len(str(caught.exception)),260)
+    def test_extra_privilege_has_field_specific_error(self):
+        _,error,_=self.modeled_negative(override=lambda d:d['HostConfig'].update(CapAdd=['SYS_ADMIN']))
+        self.assertIn('HostConfig.CapAdd.empty',str(error))
     def browser_records(self,counters=None):
         stages=['setns_invalid_fd','mount_null_target','outer_chroot','unshare_zero','unshare_mount_namespace','user_namespace_chain','full_namespace_chain']
         records=['C3C_NAMESPACE_DIAGNOSTIC '+json.dumps(dict(status='PASS',checks=[dict(stage=x,status='PASS') for x in stages]))]

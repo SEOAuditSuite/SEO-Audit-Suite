@@ -336,3 +336,114 @@ conditional on all offline checks below passing; production release remains BLOC
 READY for ONE separately authorized standard free-runner experiment with the
 mandatory negative gate and unchanged acceptance gates. BLOCKED for production
 budget/default changes or release. This candidate is uncommitted and unpublished.
+
+## Targeted 128-task fixture recovery — 2026-10-18
+
+Parent: 8cada86965c400276ceadbd8f9c28e4f5ffcbe93. Main must remain
+36c98ecd4537cc421e0ffe08321f62a10b0bed36. Offline correction only: no commit,
+push, workflow execution, policy loading or infrastructure changes in this session.
+
+### What the failed run actually establishes
+
+https://github.com/SEOAuditSuite/SEO-Audit-Suite/actions/runs/39112368807,
+job 117631018542, records native_validation_128_task_enforcement FAIL with
+AssertionError and an empty detail. The logs have a created container ID and owned
+removal, but omit its inspect fields and the specific assertion. Chromium was
+skipped. The exact historical failed assertion remains NOT VERIFIED; neither
+AppArmor disablement nor 128-task incompatibility is established by this failure.
+
+Docker 28.0.4 source distinguishes explicit AppArmor configuration from OCI
+selection: daemon_unix.go assigns AppArmorProfile from an explicit apparmor
+security option; oci_linux.go WithApparmor selects docker-default when the field
+is empty and the container is unprivileged. The previous fixture omitted explicit
+selection yet asserted the creation metadata already named docker-default.
+That is an established source-level fixture assumption defect and a likely
+explanation, not recovered native field evidence. The old mock supplied the
+expected profile string unconditionally, so it did not model the empty creation
+metadata case. New tests retain strict rejection of empty metadata after explicit
+selection; no missing observation is relabelled PASS.
+
+Primary source:
+https://github.com/moby/moby/blob/v28.0.4/daemon/daemon_unix.go
+https://github.com/moby/moby/blob/v28.0.4/daemon/oci_linux.go
+
+### Exact correction and enforcement sequence
+
+Only the separate synthetic negative fixture requests an explicit existing
+`--security-opt apparmor=docker-default`. No custom browser policy is attached
+to it, and browser options/policy attachment remain unchanged. Docker's global
+default profile is neither replaced nor edited.
+
+1. Obtain the existing read-only host/receipt preflight. Require the loaded,
+   enforcing docker-default binary hash and unchanged job-owned named profile.
+   A non-root hosted caller uses the existing privileged read-only receipt helper;
+   no new privileged operation is introduced.
+2. Create with the explicit profile option. Read back exact 128-task, UID 10001,
+   zero added capabilities, cap-drop ALL, NoNewPrivs, memory/swap/CPU, private
+   namespaces, network none, read-only root, tmpfs, ulimits, immutable image and
+   explicit default AppArmor selection. Every mismatch names its field and
+   bounded, sanitized expected/observed values. Duplicate security options fail.
+3. Recheck the same host profile identities before container start. The payload
+   verifies UID/GID, kernel `/proc/self/attr/current` exactly
+   `docker-default (enforce)`, NoNewPrivs=1, seccomp=2, all five capability masks
+   zero and pids.max=128 BEFORE any fork or saturation. It emits a bounded
+   pre-saturation record. A Docker profile name alone is not enforcement proof.
+4. Retain bounded 128-attempt saturation. Require EAGAIN, current=128, positive
+   pids.events.max delta, owned-child kill/reaping and final current=1. All
+   equality failures identify the expected and observed field. No generic
+   permission/memory failure can count as PID enforcement.
+5. Capture Docker attach exit/timeout and sanitized stdout/stderr using temporary
+   files (retain at most 4096/2048 bytes respectively). Truncation fails closed.
+   A nonzero payload exit prints its field-specific stderr before the gate fails.
+   Parse exactly two records and verify their effective label and PID evidence.
+6. Recheck host profile identity after execution; reject drift before acceptance.
+   Always remove the exact nonce-owned fixture and check no owned survivor.
+   Existing final resource and source-based profile cleanup remain untouched.
+
+The identity chain is the host enforcing binary hash, explicit container profile
+selection, in-kernel label before fork and matching host identity after execution.
+It does not depend on container access to host securityfs. Host administrators and
+kernel compromise are outside this shared-kernel observation model.
+
+### Preserved scope and remaining uncertainty
+
+All 48 engineering files and ten policy-proposal files, image/dependency pins,
+AppArmor/seccomp sources, production PID default 64, broker 16, original resource
+fixture 8, synthetic browser ceiling 128, sandbox, resource and cleanup controls
+remain byte-identical to parent. Existing positive page/sandbox/DOM acceptance,
+zero browser PID-denial requirement and fail-closed negative-before-positive
+ordering are unchanged. No new native retry or automatic budget increase exists.
+
+Exactly six changed paths: run.py, test_policy_attachment.py, test_preflight.py,
+the existing workflow, this review and candidate-manifest.json. The workflow only
+updates exact parent and checkout depth 11; the proposed child is ten ancestry
+edges above required main, so baseline ancestry remains verifiable. The previous
+prepared correction is preserved in parent; this patch does not recreate it.
+
+Actual 128-task enforcement/reaping, effective profile attachment in the corrected
+fixture, Chromium compatibility/peak/sandbox-page/DOM and cleanup of this revised
+fixture remain NOT VERIFIED until one separately authorized native attempt.
+Broker-backed rendering, mTLS, network containment and active crash/cancellation
+acceptance also remain NOT VERIFIED. No production readiness claim is made.
+
+### Recovery validation results
+
+- Linux/Python 3.12.14: 178/178 focused PASS (68 diagnostics/preflight,
+  19 seccomp, 91 attachment/cleanup/budget tests).
+- Hosted C3C_POLICY_JOB + RUNNER_TEMP simulation: 178/178 PASS.
+- Same hosted variables with mocked effective UID 1001: 178/178 PASS.
+  This does not establish actual native UID switching or profile enforcement.
+- Sixteen new targeted regressions PASS: explicit/missing selection, empty/wrong
+  profile, effective complain label before fork, invalid/changed host identity,
+  PID mismatch, privilege mutation, bounded/redacted diagnostics, timeout,
+  nonzero exit and owned cleanup. Prior negative-security tests remain passing.
+- Workflow safety: 11/11 PASS; 128 source hashes with the pre-existing two
+  logging-only corrections verified. Exact six-path scope and whitespace PASS.
+- 48/48 engineering and 10/10 policy-proposal files are byte-identical to parent.
+- No full application regression rerun: application/export logic is unchanged.
+- No Docker/PID saturation, Chromium, profile load/unload, commit, push or Actions
+  run is performed. Revised fixture's native identity/enforcement/cleanup and
+  browser compatibility remain NOT VERIFIED.
+
+Decision: READY for one separately authorized controlled native attempt, with
+all negative and positive gates mandatory. Production acceptance remains BLOCKED.

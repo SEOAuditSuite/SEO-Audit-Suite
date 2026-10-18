@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = 'a1a73548532b1aa8b001123dee0b0850c880700d'
+DIAGNOSTIC_PARENT = '8cada86965c400276ceadbd8f9c28e4f5ffcbe93'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -76,7 +76,7 @@ def safety():
             assert hashlib.sha256(data).hexdigest() == digest, name
     workflow = (ROOT/'.github/workflows/c3c-security-validation.yml').read_text()
     generic = (ROOT/'.github/workflows/python-check.yml').read_text()
-    assert 'fetch-depth: 10' in workflow
+    assert 'fetch-depth: 11' in workflow
     assert workflow.index('--prepare-job') < workflow.index('780s python -u validation/c3c/run.py --execute') < workflow.index('--cleanup-job')
     assert "if: always()" in workflow and '--cleanup' in workflow
     assert '--replace' not in workflow and 'sudo -n -- /usr/bin/python3 -I' in workflow
@@ -312,9 +312,23 @@ VALIDATION_BROWSER_TASKS = 128
 PID_BUDGET_PROBE = r'''import errno,json,os,signal
 from pathlib import Path
 root=Path('/sys/fs/cgroup')
-def event():return int(dict(line.split() for line in (root/'pids.events').read_text().splitlines())['max'])
-assert os.getuid()==10001 and os.getgid()==10001
-assert (root/'pids.max').read_text().strip()=='128'
+def read(path):
+    with Path(path).open() as stream:value=stream.read(4097)
+    assert len(value)<=4096, 'PID fixture file_size expected=<=4096 observed=oversized'
+    return value.strip()
+def expect(field,expected,observed):
+    assert type(observed) is type(expected) and observed==expected, 'PID fixture '+field+' expected='+repr(expected)[:160]+' observed='+repr(observed)[:160]
+def event():return int(dict(line.split() for line in read(root/'pids.events').splitlines())['max'])
+expect('uid',10001,os.getuid());expect('gid',10001,os.getgid())
+label=read('/proc/self/attr/current')
+expect('effective_apparmor_label','docker-default (enforce)',label)
+status=dict(line.split(':',1) for line in read('/proc/self/status').splitlines() if ':' in line)
+expect('NoNewPrivs','1',status.get('NoNewPrivs','').strip())
+expect('Seccomp','2',status.get('Seccomp','').strip())
+for field in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb'):
+    expect(field,0,int(status.get(field,'-1').strip(),16))
+expect('pids.max','128',read(root/'pids.max'))
+print(json.dumps(dict(phase='before_saturation',effective_apparmor_label=label,uid=os.getuid(),pids_max=128)),flush=True)
 before=event();children=[];denial=None;read_fd,write_fd=os.pipe()
 try:
     for _ in range(128):
@@ -325,48 +339,109 @@ try:
                 os.close(write_fd);os.read(read_fd,1)
             finally:os._exit(0)
         children.append(pid)
-    current=int((root/'pids.current').read_text());delta=event()-before
-    assert denial==errno.EAGAIN and current==128 and delta>0
+    current=int(read(root/'pids.current'));delta=event()-before
+    expect('fork_errno',errno.EAGAIN,denial)
+    expect('pids.current_at_denial',128,current)
+    assert delta>0, 'PID fixture pids.events.max_delta expected=>0 observed='+repr(delta)
 finally:
     os.close(write_fd);os.close(read_fd)
     for pid in children:
         try:os.kill(pid,signal.SIGKILL)
         except ProcessLookupError:pass
     for pid in children:os.waitpid(pid,0)
-assert int((root/'pids.current').read_text())==1
+expect('pids.current_after_reaping',1,int(read(root/'pids.current')))
 print(json.dumps(dict(status='PASS',pids_max=128,at_denial=current,event_delta=delta,errno=denial,owned_children_reaped=True)))
 '''
 
 
-def native_pid_budget(image):
-    """Separate sequential synthetic container: never consumes the browser budget.
+def pid_fixture_equal(field, expected, observed):
+    """Field-specific, bounded and redacted; never dump Docker inspect wholesale."""
+    if type(observed) is not type(expected) or observed!=expected:
+        raise AssertionError('PID fixture '+field+' expected='+sanitize(repr(expected),160)+
+                             ' observed='+sanitize(repr(observed),160))
 
-    Default Docker AppArmor/seccomp remain enforced here. Reviewed custom browser
-    policies are attached only by native_browser, whose entrypoint is unchanged.
+
+def pid_fixture_options(image,nonce):
+    args=browser_options(image,nonce)
+    index=args.index('--entrypoint')
+    args[index:index]=['--security-opt','apparmor=docker-default']
+    args[-1:]=['-c',PID_BUDGET_PROBE]
+    return args
+
+
+def verify_pid_fixture(info):
+    """Verify explicit creation metadata; kernel enforcement is checked in payload."""
+    h=info.get('HostConfig');config=info.get('Config')
+    pid_fixture_equal('HostConfig.object',True,isinstance(h,dict))
+    pid_fixture_equal('Config.object',True,isinstance(config,dict))
+    expected={'Memory':1536*1024*1024,'MemorySwap':1536*1024*1024,'NanoCpus':1000000000,
+              'PidsLimit':128,'NetworkMode':'none','IpcMode':'private','CgroupnsMode':'private',
+              'UsernsMode':'','PidMode':'','ReadonlyRootfs':True,'Privileged':False,
+              'CapDrop':['ALL'],'Tmpfs':{'/tmp':'rw,nosuid,nodev,size=256m,mode=1777'},
+              'LogConfig':{'Type':'local','Config':{'max-size':'10m','max-file':'1','compress':'false'}}}
+    for field,value in expected.items():pid_fixture_equal('HostConfig.'+field,value,h.get(field))
+    for field in ('CapAdd','Binds','Devices','VolumesFrom'):
+        pid_fixture_equal('HostConfig.'+field+'.empty',True,not bool(h.get(field)))
+    pid_fixture_equal('Config.User','10001:10001',config.get('User'))
+    pid_fixture_equal('Config.Entrypoint',['python'],config.get('Entrypoint'))
+    pid_fixture_equal('Config.Cmd',['-c',PID_BUDGET_PROBE],config.get('Cmd'))
+    pid_fixture_equal('Config.Image',info.get('Image'),config.get('Image'))
+    pid_fixture_equal('Image.immutable_sha256',True,bool(re.fullmatch('sha256:[a-f0-9]{64}',str(info.get('Image')))))
+    pid_fixture_equal('AppArmorProfile','docker-default',info.get('AppArmorProfile'))
+    opts=h.get('SecurityOpt')
+    pid_fixture_equal('HostConfig.SecurityOpt',['apparmor=docker-default','no-new-privileges=true'],sorted(opts) if isinstance(opts,list) and all(isinstance(x,str) for x in opts) else opts)
+    limits={x['Name']:(x['Soft'],x['Hard']) for x in h.get('Ulimits',[])}
+    pid_fixture_equal('HostConfig.Ulimits',{'nofile':(256,256),'core':(0,0)},limits)
+    pid_fixture_equal('HostConfig.Ulimits.count',2,len(h.get('Ulimits',[])))
+
+
+def native_pid_budget(image):
+    """Explicit default AppArmor selection plus host identity and in-kernel label.
+
+    Host checks are read-only; the custom browser policy and its lifecycle remain
+    separate. No saturation until readback AND the payload's enforcing label pass.
     """
     nonce=uuid.uuid4().hex;name='c3c-'+nonce+'-worker';created=False
-    args=browser_options(image,nonce)
-    args[-1:]=['-c',PID_BUDGET_PROBE]
+    host=sandbox_attachment.readonly_preflight();sandbox_attachment.require_ready(host)
+    identity=host.get('evidence',{}).get('docker_default_profile_identity')
+    pid_fixture_equal('docker_default_profile_identity.sha256',True,bool(re.fullmatch('[a-f0-9]{64}',str(identity))))
+    args=pid_fixture_options(image,nonce)
     try:
         command(['docker',*args],timeout=15);created=True
         info=json.loads(command(['docker','inspect',name],capture=True))[0]
-        from deployment.c3c.supervisor import verify_container
-        from deployment.c3c.policy import Limits
-        verify_container(info,Limits(pids=VALIDATION_BROWSER_TASKS))
-        assert not any(info['HostConfig'].get(key) for key in ('CapAdd','Binds','Devices','VolumesFrom'))
-        assert info.get('AppArmorProfile')=='docker-default'
-        assert info['HostConfig'].get('SecurityOpt')==['no-new-privileges=true']
-        raw=command(['docker','start','--attach',name],capture=True,timeout=15)
-        assert len(raw)<=1024
-        record=json.loads(raw)
-        assert record.get('status')=='PASS' and record.get('pids_max')==VALIDATION_BROWSER_TASKS
-        assert record.get('at_denial')==VALIDATION_BROWSER_TASKS and record.get('errno')==11
-        assert type(record.get('event_delta')) is int and record['event_delta']>0
-        assert record.get('owned_children_reaped') is True
+        verify_pid_fixture(info)
+        sandbox_attachment.require_ready(host)  # Same enforcing binary before start.
+        print('C3C_PID_FIXTURE_READBACK '+json.dumps(dict(pids_limit=128,profile='docker-default',enforcing_host_binary_sha256=identity)),flush=True)
+        with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
+            result=None;timed_out=False
+            try:
+                result=subprocess.run(['docker','start','--attach',name],stdout=out,stderr=err,timeout=15)
+            except subprocess.TimeoutExpired:timed_out=True
+            finally:
+                out.seek(0);raw=out.read(4097);err.seek(0);error=err.read(2049)
+                print('C3C_PID_FIXTURE_EXEC '+json.dumps(dict(exit_code=result.returncode if result else None,
+                      timeout=timed_out,stdout=sanitize(raw[:4096],4096),stderr=sanitize(error[:2048],2048),
+                      stdout_truncated=len(raw)>4096,stderr_truncated=len(error)>2048)),flush=True)
+        pid_fixture_equal('docker_attach.timeout',False,timed_out)
+        pid_fixture_equal('stdout.within_4096_bytes',True,len(raw)<=4096)
+        pid_fixture_equal('stderr.within_2048_bytes',True,len(error)<=2048)
+        pid_fixture_equal('docker_attach.exit_code',0,result.returncode if result else None)
+        rows=raw.decode('utf-8',errors='replace').splitlines()
+        pid_fixture_equal('payload.record_count',2,len(rows))
+        preflight=json.loads(rows[0]);record=json.loads(rows[1])
+        for field,value in dict(phase='before_saturation',effective_apparmor_label='docker-default (enforce)',uid=10001,pids_max=128).items():
+            pid_fixture_equal('payload.preflight.'+field,value,preflight.get(field))
+        for field,value in dict(status='PASS',pids_max=128,at_denial=128,errno=11,owned_children_reaped=True).items():
+            pid_fixture_equal('payload.'+field,value,record.get(field))
+        delta=record.get('event_delta')
+        pid_fixture_equal('payload.event_delta.positive_integer',True,type(delta) is int and delta>0)
+        sandbox_attachment.require_ready(host)  # Reject profile identity drift.
+        record.update(effective_apparmor_label=preflight['effective_apparmor_label'],default_profile_sha256=identity)
         return record
     finally:
         if created or nonce in OWNED_NONCES:command(['docker','rm','--force',name],timeout=15)
-        assert not command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+        survivors=command(['docker','ps','-aq','--filter','label=seo.c3c.job='+nonce],capture=True).strip()
+        pid_fixture_equal('cleanup.owned_container_survivors','',survivors)
 
 
 def reaper(image):

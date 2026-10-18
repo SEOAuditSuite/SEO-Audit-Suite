@@ -289,9 +289,9 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
     def test_lineage_and_no_upload_workflow_preserved(self):
         manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
-        self.assertEqual(manifest['parent'],'a1a73548532b1aa8b001123dee0b0850c880700d')
+        self.assertEqual(manifest['parent'],'8cada86965c400276ceadbd8f9c28e4f5ffcbe93')
         self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
-        self.assertIn('fetch-depth: 10',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+        self.assertIn('fetch-depth: 11',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
 
 
 class RecoveryDiagnosticsTests(unittest.TestCase):
