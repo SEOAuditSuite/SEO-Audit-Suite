@@ -1,28 +1,24 @@
 {
-  "parent": "89ac410c49b036c3866be411c57079a4b90af9ab",
+  "parent": "ec91c6af312f910050f236907a8c2632ddc47079",
   "required_main": "36c98ecd4537cc421e0ffe08321f62a10b0bed36",
-  "readiness": "BLOCKED_PENDING_MATCHING_LINUX_OFFLINE_REGRESSIONS",
+  "readiness": "READY_FOR_SEPARATELY_AUTHORIZED_TASK_ATTRIBUTION_ATTEMPT",
   "changed_paths": [
     ".github/workflows/c3c-security-validation.yml",
     "validation/c3c/POLICY-ATTACHMENT-REVIEW.md",
     "validation/c3c/candidate-manifest.json",
-    "validation/c3c/policy_attachment.py",
     "validation/c3c/run.py",
     "validation/c3c/sandbox_probe.py",
-    "validation/c3c/test_policy_attachment.py",
     "validation/c3c/test_preflight.py"
   ],
   "sha256": {
-    ".github/workflows/c3c-security-validation.yml": "c85e9441dac0e1bb46ac26d2bb104836e183d6b0b8e556bb67a69b329a6ac800",
-    "validation/c3c/POLICY-ATTACHMENT-REVIEW.md": "03206e20e1dd1063f40e35e2b2e32e28cc742f1b19d034723f9001ef1ac87b1d",
-    "validation/c3c/policy_attachment.py": "c6bc6e341f8e0d2ac0b0defe8b83ead0ee4455f4d35fee00da5d63794c1b2235",
-    "validation/c3c/run.py": "86b20c409ae16f48ff23e1a4ce30e9e3cbd52687398a747354979c03b1e4a485",
-    "validation/c3c/sandbox_probe.py": "bdcea9e07cb5c7e043075502dfaa54a127a5755fafd1f16ff933173f0a8d8c6c",
-    "validation/c3c/test_policy_attachment.py": "a2af18e0618f2a219889aeb31d72d690cb2601d5f4a7bad8c3f24fe790798e7e",
-    "validation/c3c/test_preflight.py": "a825254511481d826f4e3e0357c7d3f9f81eaf69d1cb6ad30cfbe74067757626"
+    ".github/workflows/c3c-security-validation.yml": "fddfc96a1dfaf5336aff14b4773efb397eec8146951a96b17060b990f39dd30b",
+    "validation/c3c/POLICY-ATTACHMENT-REVIEW.md": "6f5f0edd9485766d38e75bcd2154e0bff83d214043db75e3121c495b3366864e",
+    "validation/c3c/run.py": "2a647779e2f2993b62ccbde7d0bbcb264abfe05f205f7b41b1b8d44b12c94f94",
+    "validation/c3c/sandbox_probe.py": "7d0092e35e9cfb8c2ebaa9e5b29bbc3335cea229fd3d7b13fe78766dab146536",
+    "validation/c3c/test_preflight.py": "402584626e6c036bf93773b69b27ba01caaea750ad2d9402f63406095f84d08e"
   },
   "recovery_package_sha256": "f754396766233519be6c1778f774e3308eed4d31576e7a9ab75c1114b0ae45a0",
-  "validation_scope_note": "Offline post-launch phase diagnostics and parser-4 source removal preparation only. Existing native browser hang phase remains unknown. No commit, push, Actions run, PR, merge or deployment.",
+  "validation_scope_note": "Offline read-only task resource attribution only; security limits unchanged; no publication or native execution.",
   "cumulative_support_paths": [
     ".github/workflows/c3c-security-validation.yml",
     "deployment/c3c/native_runner.py",
@@ -55,15 +51,15 @@
   "recovered_candidate_manifest_sha256": "198772ce66a13d69bf51ef000e1543fab6457b11f3501a7377f081443af20bf1",
   "capability_probe_run": 39039640045,
   "offline_results": {
-    "new_recovery_regressions": "23 PASS; 1 Linux-only fd2 pipe/select stall test SKIPPED on Windows",
-    "focused_regressions": "Windows run: 115 tests; 2 failures, 19 errors, 1 skipped; 19 libseccomp tests unavailable at setUpClass",
-    "baseline_comparison": "Same 2 failures and 19 error identities on unchanged parent (91 tests); no additional executed test failures",
-    "workflow_safety": "11/11 PASS; 128 source hashes and candidate checksums verified",
+    "focused_linux": "146/146 PASS (68 diagnostics/preflight + 19 seccomp + 59 attachment/cleanup)",
+    "hosted_variables": "146/146 PASS with C3C_POLICY_JOB and RUNNER_TEMP; actual non-root native execution NOT VERIFIED",
+    "new_attribution_tests": "12/12 PASS",
+    "workflow_safety": "11/11 PASS; 128 source hashes verified",
     "engineering_preservation": "48/48 byte-identical to parent",
     "policy_preservation": "10/10 byte-identical to parent",
-    "full_regression": "Attempted: 55 tests, 2 failures, 20 errors, 2 skipped; missing recovered dependencies and Windows-specific environment",
-    "matching_linux_regressions": "NOT VERIFIED: no Linux runtime or libseccomp available",
-    "native": "NOT RUN: prohibited in this session"
+    "native": "NOT RUN; prohibited in this session",
+    "full_application_regression": "NOT RERUN; diagnostics-only scope; prior native result remains historical",
+    "exact_limiting_resource": "NOT VERIFIED; thread allocation EAGAIN observed; unchanged pids.max=64"
   },
   "supersedes_unpublished_commit": "2856940031d170aff37b4c94adf080349ef2ce83",
   "superseded_candidate_manifest_sha256": "51f6a3f3f41fe46c02a0a677b8336a53ac97a583fdbba2b6fde00621864cc702",
@@ -71,12 +67,10 @@
     ".github/workflows/c3c-security-validation.yml",
     "validation/c3c/POLICY-ATTACHMENT-REVIEW.md",
     "validation/c3c/candidate-manifest.json",
-    "validation/c3c/policy_attachment.py",
     "validation/c3c/run.py",
     "validation/c3c/sandbox_probe.py",
-    "validation/c3c/test_policy_attachment.py",
     "validation/c3c/test_preflight.py"
   ],
-  "previous_candidate_manifest_sha256": "a203201bec53db2c07dea2d30643f6f5fc6bcbf7ec661a6582a515ad7bb497d0",
-  "failed_native_run": 39041775988
+  "previous_candidate_manifest_sha256": "7d5c0482c2ff34acf9fe4d23cb7e25460b2a87c320ea9138199295417e628596",
+  "failed_native_run": 39050128092
 }

@@ -289,9 +289,9 @@ class StartupDiagnosticsTests(unittest.TestCase):
         self.assertEqual(command.call_args_list[-2].args[0][:3],['docker','rm','--force'])
     def test_lineage_and_no_upload_workflow_preserved(self):
         manifest=json.loads((ROOT/'validation/c3c/candidate-manifest.json').read_text())
-        self.assertEqual(manifest['parent'],'89ac410c49b036c3866be411c57079a4b90af9ab')
+        self.assertEqual(manifest['parent'],'ec91c6af312f910050f236907a8c2632ddc47079')
         self.assertIn('validation/c3c/image_candidate.py',manifest['cumulative_support_paths'])
-        self.assertIn('fetch-depth: 8',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
+        self.assertIn('fetch-depth: 9',(ROOT/'.github/workflows/c3c-security-validation.yml').read_text())
 
 
 class RecoveryDiagnosticsTests(unittest.TestCase):
@@ -399,6 +399,56 @@ with driver_diagnostics() as stderr, ProbeDeadline(time.monotonic(),stderr,total
         output,error,_,_=self.modeled_probe(close_error=True)
         self.assertIsNotNone(error);self.assertIn('"phase": "browser_close", "status": "FAIL"',output)
         self.assertNotIn('"synthetic_secure_context": true',output)
+
+
+class TaskAttributionTests(unittest.TestCase):
+    def setUp(self):
+        from validation.c3c import sandbox_probe
+        self.probe=sandbox_probe
+    def test_numeric_counter_and_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'counter';p.write_text('max 7\n')
+            self.assertEqual(self.probe.numeric_read(p),{'max':'7'})
+            p.write_text('64\n');self.assertEqual(self.probe.numeric_read(p),'64')
+    def test_missing_counter_never_becomes_zero(self):
+        self.assertIn('NOT VERIFIED',self.probe.numeric_read(Path('/missing/c3c/counter')))
+    def test_malformed_secret_never_emitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'counter';p.write_text('token=secret')
+            self.assertNotIn('secret',self.probe.numeric_read(p))
+    def test_oversized_counter_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'counter';p.write_text('9'*2048)
+            self.assertIn('oversized',self.probe.numeric_read(p))
+    def delta(self,a,b):
+        return self.probe.event_delta({'cgroup':{'pids.events':a}},{'cgroup':{'pids.events':b}},'pids.events')
+    def test_denial_delta_preserved(self):self.assertEqual(self.delta({'max':'0'},{'max':'3'}),{'max':3})
+    def test_no_denial_observed_is_not_compatibility_pass(self):self.assertEqual(self.delta({'max':'0'},{'max':'0'}),{'max':0})
+    def test_missing_denial_evidence_is_unknown(self):self.assertEqual(self.delta(None,{'max':'1'}),'NOT VERIFIED')
+    def test_counter_reset_is_unknown(self):self.assertIn('NOT VERIFIED',self.delta({'max':'2'},{'max':'1'}))
+    def test_resource_capture_does_not_spawn_or_change_limits(self):
+        from unittest.mock import Mock
+        with patch.object(self.probe.threading,'Thread',side_effect=AssertionError('thread')),patch.object(self.probe.resource,'setrlimit',side_effect=AssertionError('write')):
+            data=self.probe.task_resources(cgroup=Path('/missing'),proc=Path('/missing'))
+        self.assertEqual(data['ancestor_limits'],'NOT VERIFIED')
+        self.assertEqual(data['host_uid_task_total'],'NOT VERIFIED')
+    def test_pre_and_failure_evidence_precedes_unwind(self):
+        out=io.StringIO();progress=self.probe.ProbeDeadline(0,lambda:None)
+        with patch.object(self.probe,'task_resources',return_value={'cgroup':{'pids.events':{'max':'1'}}}),contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(RuntimeError,'crashed'):
+                progress.call('sandbox_page_creation',lambda:(_ for _ in ()).throw(RuntimeError('crashed')))
+        events=[json.loads(line.split(' ',1)[1]) for line in out.getvalue().splitlines()]
+        self.assertEqual([e['status'] for e in events if e['kind']=='task_resources'],['BEGIN','FAIL'])
+    def test_task_count_sums_threads_not_processes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for pid,threads in ((1,3),(19,11)):
+                p=Path(tmp)/str(pid);p.mkdir();(p/'status').write_text('Threads:\t'+str(threads)+'\n');(p/'wchan').write_text('0')
+            result=self.probe.process_snapshot(Path(tmp))
+        self.assertEqual(result['observed_thread_count'],14);self.assertEqual(result['observed_process_count'],2)
+    def test_policy_and_task_cap_unchanged(self):
+        args=run.browser_options('sha256:test','a'*32)
+        self.assertEqual(args[args.index('--pids-limit')+1],'64')
+        self.assertIn('--cap-drop',args);self.assertIn('ALL',args)
 
 
 if __name__=='__main__':unittest.main()

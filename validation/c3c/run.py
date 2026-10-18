@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '36c98ecd4537cc421e0ffe08321f62a10b0bed36'
-DIAGNOSTIC_PARENT = '89ac410c49b036c3866be411c57079a4b90af9ab'
+DIAGNOSTIC_PARENT = 'ec91c6af312f910050f236907a8c2632ddc47079'
 BRANCH = 'review/c3c-security-validation-20261017'
 MANIFEST = ROOT / 'validation/c3c/source-manifest.json'
 SUPPORT = {'.github/workflows/python-check.yml',
@@ -76,7 +76,7 @@ def safety():
             assert hashlib.sha256(data).hexdigest() == digest, name
     workflow = (ROOT/'.github/workflows/c3c-security-validation.yml').read_text()
     generic = (ROOT/'.github/workflows/python-check.yml').read_text()
-    assert 'fetch-depth: 8' in workflow
+    assert 'fetch-depth: 9' in workflow
     assert workflow.index('--prepare-job') < workflow.index('780s python -u validation/c3c/run.py --execute') < workflow.index('--cleanup-job')
     assert "if: always()" in workflow and '--cleanup' in workflow
     assert '--replace' not in workflow and 'sudo -n -- /usr/bin/python3 -I' in workflow

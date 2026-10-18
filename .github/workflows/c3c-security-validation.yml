@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   validate:
-    if: github.run_attempt == 1 && github.event.deleted == false && github.event.repository.private == false && github.event.before == '89ac410c49b036c3866be411c57079a4b90af9ab'
+    if: github.run_attempt == 1 && github.event.deleted == false && github.event.repository.private == false && github.event.before == 'ec91c6af312f910050f236907a8c2632ddc47079'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -21,7 +21,7 @@ jobs:
       - timeout-minutes: 1
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 8
+          fetch-depth: 9
           persist-credentials: false
       - timeout-minutes: 1
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

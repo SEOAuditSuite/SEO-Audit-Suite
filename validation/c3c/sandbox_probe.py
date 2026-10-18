@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import sys
 import contextlib
 import select
@@ -130,15 +131,82 @@ def process_snapshot(root=Path('/proc')):
             if len(rows)>=64:break
             row={'pid':int(item.name)}
             try:
-                raw=(item/'status').read_text()[:8192]
+                with (item/'status').open() as stream:raw=stream.read(8192)
                 for key in ('Name','State','PPid','Threads','NoNewPrivs','Seccomp'):
                     match=re.search(r'^'+key+r':\s*(.*)$',raw,re.M)
                     if match:row[key]=sanitize(match[1],96)
-                row['wchan']=sanitize((item/'wchan').read_text()[:128],128)
+                with (item/'wchan').open() as stream:row['wchan']=sanitize(stream.read(128),128)
             except OSError:row['status']='NOT VERIFIED'
             rows.append(row)
     except OSError:return {'status':'NOT VERIFIED','processes':rows}
-    return {'status':'OBSERVED','processes':rows,'maximum':64}
+    return {'status':'OBSERVED','processes':rows,'maximum':64,
+            'observed_process_count':len(rows),
+            'observed_thread_count':sum(int(row.get('Threads','0')) for row in rows if str(row.get('Threads','0')).isdigit()),
+            'complete':len(rows)<64 and all('Threads' in row for row in rows),
+            'interpretation':'Racy PID namespace snapshot; not a peak or host UID task total'}
+
+
+RESOURCE_FILES = ('pids.current','pids.max','pids.peak','pids.events','pids.events.local',
+                  'memory.current','memory.max','memory.peak','memory.events','memory.events.local')
+
+
+def numeric_read(path, limit=1024):
+    """Strict numeric allowlist; no arbitrary file contents or unknown-as-zero."""
+    try:
+        with path.open() as stream:raw=stream.read(limit+1)
+        if len(raw)>limit:return 'NOT VERIFIED: oversized'
+        raw=raw.strip()
+        if re.fullmatch(r'(?:[0-9]+|max)',raw):return raw
+        rows=raw.splitlines()
+        if rows and all(re.fullmatch(r'[a-z_]+ [0-9]+',row) for row in rows):
+            return dict(row.split() for row in rows)
+        return 'NOT VERIFIED: malformed'
+    except OSError:return 'NOT VERIFIED: unavailable'
+
+
+def task_resources(cgroup=Path('/sys/fs/cgroup'), proc=Path('/proc')):
+    """Synchronous reads only: adds no worker threads/processes or security changes.
+
+    Private cgroup/PID namespaces hide ancestors and per-UID host task totals.
+    Snapshot counts can miss short peaks; counter deltas are stronger evidence.
+    """
+    readings={name:numeric_read(cgroup/name) for name in RESOURCE_FILES}
+    limits={}
+    for name in ('NPROC','STACK','AS','NOFILE','CORE'):
+        try:limits[name]=list(resource.getrlimit(getattr(resource,'RLIMIT_'+name)))
+        except (OSError,ValueError):limits[name]='NOT VERIFIED'
+    host={name:numeric_read(proc/'sys/kernel'/name) for name in ('threads-max','pid_max')}
+    # Host aggregate scheduler task total, not PID/UID attribution or commands.
+    try:
+        with (proc/'loadavg').open() as stream:raw=stream.read(256)
+        field=raw.split()[3]
+        host['scheduler_tasks']=field if re.fullmatch(r'[0-9]+/[0-9]+',field) else 'NOT VERIFIED'
+    except (OSError,IndexError):host['scheduler_tasks']='NOT VERIFIED'
+    try:
+        with (proc/'meminfo').open() as stream:raw=stream.read(8192)
+        host['memory_kib']={key:int(value) for key,value in re.findall(
+            r'^(MemAvailable|CommitLimit|Committed_AS):\s+([0-9]+) kB$',raw,re.M)}
+    except OSError:host['memory_kib']='NOT VERIFIED'
+    space={}
+    for path in ('/tmp','/dev/shm'):
+        try:
+            st=os.statvfs(path);space[path]={'available_bytes':st.f_bavail*st.f_frsize,'available_inodes':st.f_favail}
+        except OSError:space[path]='NOT VERIFIED'
+    tasks=process_snapshot(proc)
+    counts={key:tasks.get(key,'NOT VERIFIED') for key in ('observed_process_count','observed_thread_count','complete')}
+    return dict(cgroup=readings,launcher_rlimits=limits,host=host,space=space,namespace_task_counts=counts,
+                ancestor_limits='NOT VERIFIED',host_uid_task_total='NOT VERIFIED')
+
+
+def event_delta(before, after, name):
+    """No denial attribution from EAGAIN, missing data, equality or counter reset."""
+    a=before.get('cgroup',{}).get(name);b=after.get('cgroup',{}).get(name)
+    if not isinstance(a,dict) or not isinstance(b,dict):return 'NOT VERIFIED'
+    if set(a)!=set(b):return 'NOT VERIFIED'
+    try:
+        result={key:int(b[key])-int(a[key]) for key in a}
+        return result if all(v>=0 for v in result.values()) else 'NOT VERIFIED: counter reset'
+    except (TypeError,ValueError):return 'NOT VERIFIED'
 
 
 class ProbeDeadline:
@@ -151,6 +219,7 @@ class ProbeDeadline:
         self.started=started;self.deadline=started+total;self.stderr=stderr
         self.terminate=terminate;self.stop=threading.Event();self.lock=threading.Lock()
         self.name='post_namespace';self.phase_deadline=self.deadline
+        self.resource_baseline={}
         self.thread=threading.Thread(target=self.watch,daemon=True)
     def __enter__(self):self.thread.start();return self
     def __exit__(self,*exc):self.stop.set();self.thread.join(timeout=.2)
@@ -162,18 +231,28 @@ class ProbeDeadline:
             with self.lock:name=self.name;end=min(self.deadline,self.phase_deadline)
             if time.monotonic()<end:continue
             emit('phase',phase=name,status='TIMEOUT',elapsed_seconds=round(time.monotonic()-self.started,3))
-            self.stderr();emit('processes',**process_snapshot())
+            self.resource_evidence(name,'TIMEOUT');self.stderr();emit('processes',**process_snapshot())
             self.terminate(124);return
+    def resource_evidence(self,name,status):
+        evidence=task_resources()
+        emit('task_resources',phase=name,status=status,evidence=evidence,
+             event_deltas={key:event_delta(self.resource_baseline,evidence,key)
+                           for key in ('pids.events','pids.events.local','memory.events')})
+        if status=='BEGIN':self.resource_baseline=evidence
     @contextlib.contextmanager
     def phase(self,name,seconds=5):
         begin=time.monotonic()
         with self.lock:self.name=name;self.phase_deadline=min(self.deadline,begin+seconds)
         emit('phase',phase=name,status='BEGIN',remaining_ms=self.remaining_ms())
+        if name in ('browser_launch','sandbox_page_creation','synthetic_page_creation'):self.resource_evidence(name,'BEGIN')
         try:yield
         except BaseException as exc:
             emit('phase',phase=name,status='FAIL',exception_type=type(exc).__name__,exception=sanitize(exc,512))
+            self.resource_evidence(name,'FAIL')
             emit('processes',**process_snapshot());raise
-        else:emit('phase',phase=name,status='PASS',elapsed_seconds=round(time.monotonic()-begin,3))
+        else:
+            if name in ('browser_launch','sandbox_page_creation','synthetic_page_creation'):self.resource_evidence(name,'PASS')
+            emit('phase',phase=name,status='PASS',elapsed_seconds=round(time.monotonic()-begin,3))
         finally:
             with self.lock:self.name='between_phases';self.phase_deadline=self.deadline
     def call(self,name,fn,seconds=5):
